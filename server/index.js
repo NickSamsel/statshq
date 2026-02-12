@@ -34,6 +34,9 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       mlb: {
+        playerSearch: '/api/mlb/players/search?q=ohtani',
+        playerInfo: '/api/mlb/players/:playerId/info',
+        playerSeasons: '/api/mlb/players/:playerId/seasons',
         pitchLocations: '/api/mlb/statcast/pitch-locations?playerId=XXX&season=2025',
         seasonStats: '/api/mlb/players/season-stats?playerId=XXX&season=2025',
         batting: '/api/mlb/batting?season=2025&limit=20'
@@ -52,12 +55,27 @@ app.get('/.well-known/*', (req, res) => res.status(204).end());
 // New: 3D Pitch Locations
 app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
   try {
-    const { playerId, season = 2025 } = req.query;
+    const { playerId, season = 2024, viewType = 'batting' } = req.query;
+    
+    // Determine which player ID field to use based on viewType
+    const playerField = viewType === 'batting' ? 'batter_id' : 'pitcher_id';
+    
     const query = `
-      SELECT plate_x, plate_z, release_speed as velocity, count_description as outcome
+      SELECT 
+        plate_x, 
+        plate_z, 
+        release_speed,
+        pitch_type,
+        launch_speed,
+        launch_angle,
+        hit_distance_sc,
+        release_spin_rate,
+        events,
+        description
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_pitches\`
-      WHERE batter_id = '${playerId}' AND season = ${season}
-      LIMIT 60`;
+      WHERE ${playerField} = '${playerId}' 
+        AND season = ${season}
+      LIMIT 500`;
     const data = await runQuery(query);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -72,6 +90,147 @@ app.get('/api/mlb/players/season-stats', async (req, res) => {
       WHERE player_id = '${playerId}' AND season = ${season} LIMIT 1`;
     const data = await runQuery(query);
     res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Player Search - search by name with LIKE query
+app.get('/api/mlb/players/search', async (req, res) => {
+  try {
+    const { q = '', limit = 100 } = req.query;
+    const searchTerm = q.toLowerCase();
+    const query = `
+      WITH LatestSeasons AS (
+        SELECT 
+          player_id,
+          full_name,
+          MAX(season) as latest_season
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batting_stats\`
+        GROUP BY player_id, full_name
+      )
+      SELECT DISTINCT
+        p.player_id,
+        p.full_name as player_name,
+        b.team_name,
+        ls.latest_season
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` p
+      LEFT JOIN LatestSeasons ls ON p.player_id = ls.player_id
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batting_stats\` b
+        ON p.player_id = b.player_id AND b.season = ls.latest_season
+      WHERE LOWER(p.full_name) LIKE '%${searchTerm}%'
+      ORDER BY ls.latest_season DESC NULLS LAST, p.full_name
+      LIMIT ${limit}`;
+    const data = await runQuery(query);
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Player Info - detailed player information
+app.get('/api/mlb/players/:playerId/info', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    // Get basic player info
+    const query = `
+      SELECT *
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\`
+      WHERE player_id = '${playerId}'
+      LIMIT 1`;
+    const data = await runQuery(query);
+    
+    if (data && data[0]) {
+      const player = data[0];
+      // Calculate age from birth_date if available
+      let age = null;
+      if (player.birth_date) {
+        const birthDate = player.birth_date.value || player.birth_date;
+        const birthYear = new Date(birthDate).getFullYear();
+        age = new Date().getFullYear() - birthYear;
+      }
+      
+      // Handle debut date (exact field: mlb_debut_date)
+      let mlbDebut = null;
+      if (player.mlb_debut_date) {
+        mlbDebut = player.mlb_debut_date.value || player.mlb_debut_date;
+      }
+      
+      // Standardize field names
+      const result = {
+        player_id: player.player_id,
+        player_name: player.full_name,
+        primary_number: player.primary_number,
+        primary_position: player.primary_position_abbr,
+        age: age,
+        height: player.height,
+        weight: player.weight,
+        mlb_debut: mlbDebut,
+        bat_side: player.bat_side_code,
+        pitch_hand: player.pitch_hand_code
+      };
+      res.json(result);
+    } else {
+      res.json(null);
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Player Season History - batting stats by season (aggregated from game-level data)
+app.get('/api/mlb/players/:playerId/seasons', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    // Aggregate game-level data to season totals using BigQuery
+    const query = `
+      SELECT 
+        season,
+        MAX(team_name) as team_name,
+        COUNT(DISTINCT game_date) as games,
+        SUM(plate_appearances) as plate_appearances,
+        SUM(at_bats) as at_bats,
+        SUM(runs) as runs,
+        SUM(hits) as hits,
+        SUM(doubles) as doubles,
+        SUM(triples) as triples,
+        SUM(home_runs) as home_runs,
+        SUM(rbi) as rbi,
+        SUM(stolen_bases) as stolen_bases,
+        SUM(walks) as walks,
+        SUM(strikeouts) as strikeouts,
+        -- Calculate rate stats from totals
+        ROUND(SAFE_DIVIDE(SUM(hits), SUM(at_bats)), 3) as avg,
+        ROUND(SAFE_DIVIDE(SUM(hits) + SUM(walks), SUM(at_bats) + SUM(walks)), 3) as obp,
+        ROUND(SAFE_DIVIDE(SUM(total_bases), SUM(at_bats)), 3) as slg,
+        ROUND(SAFE_DIVIDE(SUM(hits) + SUM(walks), SUM(at_bats) + SUM(walks)) + SAFE_DIVIDE(SUM(total_bases), SUM(at_bats)), 3) as ops
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batting_stats\`
+      WHERE player_id = '${playerId}'
+      GROUP BY season
+      ORDER BY season DESC`;
+    const data = await runQuery(query);
+    
+    // Format response with proper types (caught_stealing, hit_by_pitch, sacrifice_flies, war not in schema)
+    const formatted = data.map(row => ({
+      season: row.season,
+      team_name: row.team_name,
+      games: row.games || 0,
+      plate_appearances: row.plate_appearances || 0,
+      at_bats: row.at_bats || 0,
+      runs: row.runs || 0,
+      hits: row.hits || 0,
+      doubles: row.doubles || 0,
+      triples: row.triples || 0,
+      home_runs: row.home_runs || 0,
+      rbi: row.rbi || 0,
+      stolen_bases: row.stolen_bases || 0,
+      caught_stealing: null,
+      walks: row.walks || 0,
+      strikeouts: row.strikeouts || 0,
+      hit_by_pitch: null,
+      sacrifice_flies: null,
+      avg: row.avg || 0,
+      obp: row.obp || 0,
+      slg: row.slg || 0,
+      ops: row.ops || 0,
+      war: null
+    }));
+    
+    res.json(formatted);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
