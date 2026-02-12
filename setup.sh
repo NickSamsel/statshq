@@ -36,7 +36,7 @@ if [ "$create_env" = true ]; then
 GCP_PROJECT_ID=${project_id}
 GOOGLE_APPLICATION_CREDENTIALS=${creds_path}
 PORT=8080
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=http://localhost:3000
 VITE_API_BASE_URL=http://localhost:8080/api
 EOF
     

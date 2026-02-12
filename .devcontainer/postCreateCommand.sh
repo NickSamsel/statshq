@@ -27,7 +27,7 @@ if [ -n "$GCP_PROJECT_ID" ]; then
 GCP_PROJECT_ID=$GCP_PROJECT_ID
 GOOGLE_APPLICATION_CREDENTIALS=/workspaces/statshq/server/gcp-key.json
 PORT=8080
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=http://localhost:3000
 VITE_API_BASE_URL=http://localhost:8080/api
 EOF
     echo "✅ Environment variables configured"
