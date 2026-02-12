@@ -4,8 +4,9 @@ import React, { useState } from 'react';
  * PitchHeatmap Component
  * 2D strike zone visualization with hover tooltips showing Statcast data
  * Displays pitch locations from catcher's perspective
+ * Includes batted ball statistics overlay
  */
-export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'batting' }) {
+export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'batting', battedBallStats = null }) {
   const [hoveredPitch, setHoveredPitch] = useState(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
@@ -59,18 +60,24 @@ export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'ba
   // Get pitch color based on outcome
   const getPitchColor = (pitch) => {
     if (viewType === 'batting') {
-      // For batters
-      if (pitch.events === 'home_run') return '#FFD700';
-      if (pitch.events === 'double' || pitch.events === 'triple') return '#00f2ff';
-      if (pitch.events === 'single') return '#00ff88';
-      if (pitch.description?.includes('ball')) return '#888';
-      return '#ff0055';
+      // For batters - looking for good outcomes
+      const result = pitch.pitch_result || '';
+      const category = pitch.pitch_result_category || '';
+      if (result.includes('home_run') || result.includes('Home Run')) return '#FFD700';
+      if (result.includes('double') || result.includes('triple')) return '#00f2ff';
+      if (result.includes('single')) return '#00ff88';
+      if (result.includes('hit')) return '#00ff88';
+      if (category === 'Ball' || result.includes('Ball')) return '#888';
+      return '#ff0055'; // Strikes / outs
     } else {
-      // For pitchers
-      if (pitch.description?.includes('strike') || pitch.description?.includes('called_strike')) return '#00f2ff';
-      if (pitch.description?.includes('swinging_strike') || pitch.description?.includes('foul')) return '#00ff88';
-      if (pitch.description?.includes('ball')) return '#ff0055';
-      if (pitch.events === 'strikeout') return '#FFD700';
+      // For pitchers - looking for outs/strikes
+      const category = pitch.pitch_result_category || '';
+      const description = pitch.pitch_result_description || '';
+      if (description.includes('Strikeout')) return '#FFD700';
+      if (category === 'Strike' || description.includes('Strike')) return '#00f2ff';
+      if (description.includes('Swinging') || description.includes('Foul')) return '#00ff88';
+      if (category === 'Ball') return '#ff0055';
+      if (category === 'In Play') return '#888';
       return '#888';
     }
   };
@@ -104,6 +111,45 @@ export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'ba
           {pitches.length} pitches • Catcher's View
         </div>
       </div>
+
+      {/* Batted Ball Stats Overlay */}
+      {battedBallStats && battedBallStats.total_batted_balls > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: '80px',
+          right: '24px',
+          background: 'rgba(0, 0, 0, 0.9)',
+          border: '1px solid #00f2ff',
+          borderRadius: '8px',
+          padding: '16px',
+          minWidth: '220px',
+          zIndex: 10,
+          boxShadow: '0 4px 16px rgba(0, 242, 255, 0.2)'
+        }}>
+          <div style={{ 
+            fontSize: '0.875rem', 
+            fontWeight: '600', 
+            color: '#00f2ff', 
+            marginBottom: '12px',
+            borderBottom: '1px solid #333',
+            paddingBottom: '8px'
+          }}>
+            Batted Ball Stats
+          </div>
+          <div style={{ display: 'grid', gap: '8px', fontSize: '0.75rem' }}>
+            <StatRow label="Total Balls" value={battedBallStats.total_batted_balls} />
+            <StatRow label="Avg Exit Velo" value={`${battedBallStats.avg_exit_velo} mph`} highlight />
+            <StatRow label="Max Exit Velo" value={`${battedBallStats.max_exit_velo} mph`} />
+            <StatRow label="Avg Launch Angle" value={`${battedBallStats.avg_launch_angle}°`} />
+            <StatRow label="Avg Distance" value={`${Math.round(battedBallStats.avg_distance)} ft`} />
+            <StatRow label="Barrel Rate" value={`${battedBallStats.barrel_rate}%`} highlight />
+            <StatRow label="Hard Hit Rate" value={`${battedBallStats.hard_hit_rate}%`} highlight />
+            {battedBallStats.avg_sprint_speed && (
+              <StatRow label="Sprint Speed" value={`${battedBallStats.avg_sprint_speed} ft/s`} />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Canvas Container */}
       <div style={{
@@ -238,14 +284,14 @@ export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'ba
             {hoveredPitch.pitch_type || 'Unknown'} - {hoveredPitch.release_speed?.toFixed(1) || 'N/A'} mph
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.75rem' }}>
-            <TooltipRow label="Exit Velo" value={hoveredPitch.launch_speed ? `${hoveredPitch.launch_speed.toFixed(1)} mph` : 'N/A'} />
-            <TooltipRow label="Launch Angle" value={hoveredPitch.launch_angle ? `${hoveredPitch.launch_angle.toFixed(1)}°` : 'N/A'} />
-            <TooltipRow label="Distance" value={hoveredPitch.hit_distance_sc ? `${hoveredPitch.hit_distance_sc} ft` : 'N/A'} />
             <TooltipRow label="Spin Rate" value={hoveredPitch.release_spin_rate ? `${hoveredPitch.release_spin_rate} rpm` : 'N/A'} />
+            <TooltipRow label="Zone" value={hoveredPitch.zone || 'N/A'} />
+            <TooltipRow label="Count" value={`${hoveredPitch.balls || 0}-${hoveredPitch.strikes || 0}`} />
+            <TooltipRow label="In Zone" value={hoveredPitch.in_strike_zone ? 'Yes' : 'No'} />
           </div>
-          {hoveredPitch.events && (
+          {hoveredPitch.pitch_result && (
             <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #333', fontSize: '0.75rem', color: '#888' }}>
-              Result: <span style={{ color: '#fff' }}>{hoveredPitch.events}</span>
+              Result: <span style={{ color: '#fff' }}>{hoveredPitch.pitch_result}</span>
             </div>
           )}
         </div>
@@ -274,6 +320,21 @@ function TooltipRow({ label, value }) {
     <div>
       <div style={{ color: '#888' }}>{label}</div>
       <div style={{ color: '#fff', fontWeight: '600' }}>{value}</div>
+    </div>
+  );
+}
+
+function StatRow({ label, value, highlight = false }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span style={{ color: '#888' }}>{label}:</span>
+      <span style={{ 
+        color: highlight ? '#00f2ff' : '#fff', 
+        fontWeight: highlight ? '700' : '600',
+        fontSize: highlight ? '0.875rem' : '0.75rem'
+      }}>
+        {value}
+      </span>
     </div>
   );
 }

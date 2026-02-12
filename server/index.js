@@ -37,9 +37,10 @@ app.get('/', (req, res) => {
         playerSearch: '/api/mlb/players/search?q=ohtani',
         playerInfo: '/api/mlb/players/:playerId/info',
         playerSeasons: '/api/mlb/players/:playerId/seasons',
-        pitchLocations: '/api/mlb/statcast/pitch-locations?playerId=XXX&season=2025',
-        seasonStats: '/api/mlb/players/season-stats?playerId=XXX&season=2025',
-        batting: '/api/mlb/batting?season=2025&limit=20'
+        pitchLocations: '/api/mlb/statcast/pitch-locations?playerId=XXX&season=2024&viewType=batting',
+        battedBallStats: '/api/mlb/statcast/batted-ball-stats?playerId=XXX&season=2024&viewType=batting',
+        seasonStats: '/api/mlb/players/season-stats?playerId=XXX&season=2024',
+        batting: '/api/mlb/batting?season=2024&limit=20'
       }
     }
   });
@@ -66,18 +67,72 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
         plate_z, 
         release_speed,
         pitch_type,
-        launch_speed,
-        launch_angle,
-        hit_distance_sc,
+        pitch_type_description,
         release_spin_rate,
-        events,
-        description
+        spin_tier,
+        velocity_tier,
+        pitch_result,
+        pitch_result_category,
+        pitch_result_description,
+        zone,
+        in_strike_zone,
+        game_date,
+        pitch_number,
+        batter_hand,
+        pitcher_hand,
+        balls,
+        strikes
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_pitches\`
       WHERE ${playerField} = '${playerId}' 
         AND season = ${season}
-      LIMIT 500`;
+      ORDER BY game_date DESC, pitch_number
+      LIMIT 1000`;
     const data = await runQuery(query);
     res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// New: Batted Ball Statistics - aggregated stats from statcast batted balls
+app.get('/api/mlb/statcast/batted-ball-stats', async (req, res) => {
+  try {
+    const { playerId, season = 2024, viewType = 'batting' } = req.query;
+    
+    // Determine which player ID field to use based on viewType
+    const playerField = viewType === 'batting' ? 'batter_id' : 'pitcher_id';
+    
+    const query = `
+      SELECT 
+        COUNT(*) as total_batted_balls,
+        ROUND(AVG(launch_speed), 1) as avg_exit_velo,
+        ROUND(MAX(launch_speed), 1) as max_exit_velo,
+        ROUND(AVG(launch_angle), 1) as avg_launch_angle,
+        ROUND(AVG(launch_distance), 1) as avg_distance,
+        ROUND(MAX(launch_distance), 1) as max_distance,
+        ROUND(AVG(sprint_speed), 1) as avg_sprint_speed,
+        COUNTIF(is_barrel = true) as barrels,
+        COUNTIF(is_hard_hit = true) as hard_hits,
+        COUNTIF(is_home_run = true) as home_runs,
+        COUNTIF(is_hit = true) as hits,
+        ROUND(COUNTIF(is_barrel = true) / COUNT(*) * 100, 1) as barrel_rate,
+        ROUND(COUNTIF(is_hard_hit = true) / COUNT(*) * 100, 1) as hard_hit_rate,
+        ROUND(COUNTIF(is_hit = true) / COUNT(*) * 100, 1) as hit_rate,
+        -- Breakdown by exit velo tier
+        COUNTIF(exit_velo_tier = 'Elite (105+)') as elite_velo_count,
+        COUNTIF(exit_velo_tier = 'Plus (95-105)') as plus_velo_count,
+        COUNTIF(exit_velo_tier = 'Average (85-95)') as avg_velo_count,
+        COUNTIF(exit_velo_tier = 'Below Average (<85)') as below_avg_velo_count,
+        -- Breakdown by trajectory
+        COUNTIF(trajectory_bucket = 'Line Drive') as line_drives,
+        COUNTIF(trajectory_bucket = 'Fly Ball') as fly_balls,
+        COUNTIF(trajectory_bucket = 'Ground Ball') as ground_balls,
+        COUNTIF(trajectory_bucket = 'Pop Up') as pop_ups
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_batted_balls\`
+      WHERE ${playerField} = '${playerId}' 
+        AND season = ${season}
+        AND launch_speed IS NOT NULL
+      GROUP BY 1=1`;
+    const data = await runQuery(query);
+    res.json(data.length > 0 ? data[0] : {});
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

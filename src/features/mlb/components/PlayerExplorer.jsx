@@ -7,7 +7,8 @@ import {
   fetchMLBPlayersList, 
   fetchMLBPlayerInfo, 
   fetchMLBPlayerSeasonHistory,
-  fetchMLBStatcastData 
+  fetchMLBStatcastData,
+  fetchMLBBattedBallStats
 } from '../../../services/bigqueryService';
 
 /**
@@ -25,6 +26,7 @@ export default function PlayerExplorer() {
   const [playerInfo, setPlayerInfo] = useState(null);
   const [seasonStats, setSeasonStats] = useState([]);
   const [pitchData, setPitchData] = useState([]);
+  const [battedBallStats, setBattedBallStats] = useState(null);
   const [selectedSeason, setSelectedSeason] = useState('2024');
   const [viewType, setViewType] = useState('batting'); // 'batting' or 'pitching'
   const [loading, setLoading] = useState(false);
@@ -90,8 +92,12 @@ export default function PlayerExplorer() {
 
   // Load pitch/statcast data for selected season
   const loadPitchData = async (playerId, season, type) => {
-    const data = await fetchMLBStatcastData({ playerId, season, viewType: type });
-    setPitchData(data);
+    const [pitchData, battedBallData] = await Promise.all([
+      fetchMLBStatcastData({ playerId, season, viewType: type }),
+      fetchMLBBattedBallStats({ playerId, season, viewType: type })
+    ]);
+    setPitchData(pitchData);
+    setBattedBallStats(battedBallData);
   };
 
   // Handle season change
@@ -376,6 +382,7 @@ export default function PlayerExplorer() {
             pitches={pitchData} 
             handedness={playerInfo.bat_side || playerInfo.pitch_hand}
             viewType={viewType}
+            battedBallStats={battedBallStats}
           />
         </div>
       )}

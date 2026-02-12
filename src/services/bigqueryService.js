@@ -38,6 +38,20 @@ export const fetchMLBStatcastData = async (params = {}) => {
 };
 
 /**
+ * Fetches aggregated batted ball statistics from fct_mlb__statcast_batted_balls
+ * Powers the batted ball stats overlay
+ */
+export const fetchMLBBattedBallStats = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/statcast/batted-ball-stats`, { params });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching MLB batted ball stats:', error);
+    return getMockBattedBallStats();
+  }
+};
+
+/**
  * Placeholder Sport Services (NBA, NHL, NFL)
  * Returns a signal that the UI interprets as "Not Created Yet"
  */
@@ -148,16 +162,42 @@ const getMockPlayerSeasonStats = (playerId) => [{
 const getMockPitchData = () => Array.from({ length: 40 }, () => ({
   plate_x: (Math.random() - 0.5) * 2.5, // Horizontal position
   plate_z: Math.random() * 3.5 + 1.2,    // Vertical height
-  outcome: Math.random() > 0.8 ? 'home_run' : 'strike',
-  release_speed: parseFloat((Math.random() * 20 + 80).toFixed(1)), // Map to release_speed from schema
+  pitch_result: Math.random() > 0.8 ? 'In play, run(s)' : 'StrikeCalled',
+  release_speed: parseFloat((Math.random() * 20 + 80).toFixed(1)),
   pitch_type: ['FF', 'SL', 'CH', 'CU', 'SI'][Math.floor(Math.random() * 5)],
-  launch_speed: Math.random() > 0.5 ? parseFloat((Math.random() * 30 + 80).toFixed(1)) : null,
-  launch_angle: Math.random() > 0.5 ? parseFloat((Math.random() * 60 - 10).toFixed(1)) : null,
-  hit_distance_sc: Math.random() > 0.5 ? Math.floor(Math.random() * 400 + 100) : null,
+  pitch_type_description: 'Fastball',
   release_spin_rate: Math.floor(Math.random() * 1000 + 2000),
-  events: ['single', 'double', 'home_run', 'strikeout', 'walk', null][Math.floor(Math.random() * 6)],
-  description: ['called_strike', 'ball', 'swinging_strike', 'foul', 'hit_into_play'][Math.floor(Math.random() * 5)]
+  pitch_result_category: ['Strike', 'Ball', 'In Play'][Math.floor(Math.random() * 3)],
+  pitch_result_description: ['Called Strike', 'Ball', 'Swinging Strike', 'Foul', 'In play'][Math.floor(Math.random() * 5)],
+  zone: Math.floor(Math.random() * 14) + 1,
+  in_strike_zone: Math.random() > 0.5,
+  game_date: { value: '2024-09-15' }
 }));
+
+const getMockBattedBallStats = () => ({
+  total_batted_balls: 389,
+  avg_exit_velo: 96.2,
+  max_exit_velo: 117.5,
+  avg_launch_angle: 18.9,
+  avg_distance: 219.6,
+  max_distance: 477,
+  avg_sprint_speed: 28.5,
+  barrels: 23,
+  hard_hits: 237,
+  home_runs: 44,
+  hits: 151,
+  barrel_rate: 5.9,
+  hard_hit_rate: 60.9,
+  hit_rate: 38.8,
+  elite_velo_count: 45,
+  plus_velo_count: 192,
+  avg_velo_count: 142,
+  below_avg_velo_count: 10,
+  line_drives: 98,
+  fly_balls: 156,
+  ground_balls: 125,
+  pop_ups: 10
+});
 
 const getMockPlayersList = () => [
   { player_id: '660271', player_name: 'Shohei Ohtani', team_name: 'Los Angeles Dodgers', primary_position: 'DH' },
