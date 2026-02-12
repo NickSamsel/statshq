@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Backend API Server
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/key.json
+      - PORT=8080
+      - FRONTEND_URL=http://localhost
+    volumes:
+      # Mount your service account key (make sure this file exists!)
+      - ./server/gcp-key.json:/app/credentials/key.json:ro
+    restart: unless-stopped
+    container_name: statshq-api
+
+  # Frontend React App
+  statshq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_BASE_URL=http://api:8080/api
+    depends_on:
+      - api
+    restart: unless-stopped
+    container_name: statshq-app

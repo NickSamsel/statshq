@@ -1,0 +1,42 @@
+{
+  "name": "Stats HQ Development",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
+  
+  "forwardPorts": [5173, 8080],
+  
+  "portsAttributes": {
+    "5173": {
+      "label": "Frontend",
+      "onAutoForward": "notify"
+    },
+    "8080": {
+      "label": "Backend API",
+      "onAutoForward": "notify"
+    }
+  },
+
+  "remoteEnv": {
+    "GCP_PROJECT_ID": "${localEnv:GCP_PROJECT_ID}",
+    "GCP_SERVICE_ACCOUNT_KEY": "${localEnv:GCP_SERVICE_ACCOUNT_KEY}"
+  }
+}
