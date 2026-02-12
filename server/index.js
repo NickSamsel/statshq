@@ -8,8 +8,6 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// --- 1. GLOBAL MIDDLEWARE (MUST BE FIRST) ---
-// Development-friendly CORS: Allow any origin to rule out CSP/CORS blockers
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
@@ -24,9 +22,6 @@ async function runQuery(query) {
   return rows;
 }
 
-// --- 2. ACTUAL API ROUTES ---
-
-// Root route - API info
 app.get('/', (req, res) => {
   res.json({
     name: 'Stats HQ API',
@@ -39,7 +34,8 @@ app.get('/', (req, res) => {
         playerSeasons: '/api/mlb/players/:playerId/seasons',
         pitchLocations: '/api/mlb/statcast/pitch-locations?playerId=XXX&season=2024&viewType=batting',
         battedBallStats: '/api/mlb/statcast/batted-ball-stats?playerId=XXX&season=2024&viewType=batting',
-        seasonStats: '/api/mlb/players/season-stats?playerId=XXX&season=2024',
+        seasonBattingStats: '/api/mlb/players/season-batting-stats?playerId=XXX&season=2024',
+        seasonPitchingStats: '/api/mlb/players/season-pitching-stats?playerId=XXX&season=2024',
         batting: '/api/mlb/batting?season=2024&limit=20'
       }
     }
@@ -214,7 +210,7 @@ app.get('/api/mlb/players/:playerId/info', async (req, res) => {
 });
 
 // Player Season History - batting stats by season (aggregated from game-level data)
-app.get('/api/mlb/players/:playerId/seasons', async (req, res) => {
+app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
   try {
     const { playerId } = req.params;
     // Aggregate game-level data to season totals using BigQuery
@@ -222,7 +218,7 @@ app.get('/api/mlb/players/:playerId/seasons', async (req, res) => {
       SELECT 
         season,
         MAX(team_name) as team_name,
-        COUNT(DISTINCT game_date) as games,
+        COUNT(DISTINCT game_id) as games,
         SUM(plate_appearances) as plate_appearances,
         SUM(at_bats) as at_bats,
         SUM(runs) as runs,
@@ -268,6 +264,75 @@ app.get('/api/mlb/players/:playerId/seasons', async (req, res) => {
       obp: row.obp || 0,
       slg: row.slg || 0,
       ops: row.ops || 0,
+      war: null
+    }));
+    
+    res.json(formatted);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Player Season History - pitching stats by season (aggregated from game-level data)
+app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    // Aggregate game-level data to season totals using BigQuery
+    const query = `
+      WITH pitch_counts AS (
+        -- Count occurrences of each pitch type per season
+        SELECT 
+          season,
+          statcast_primary_pitch,
+          COUNT(*) as pitch_freq,
+          ROW_NUMBER() OVER(PARTITION BY season ORDER BY COUNT(*) DESC) as rank
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_stats\`
+        WHERE player_id = '${playerId}'
+        GROUP BY season, statcast_primary_pitch
+      )
+      SELECT 
+        base.season,
+        MAX(base.team_name) as team_name,
+        COUNT(DISTINCT base.game_id) as games,
+        SUM(base.innings_pitched) as innings_pitched_decimal,
+        SUM(base.walks) as walks,
+        SUM(base.strikeouts) as strikeouts,
+        SUM(base.hits) as hits,
+        SUM(base.runs) as runs,
+        SAFE_DIVIDE(SUM(base.runs) * 9, SUM(base.innings_pitched_decimal)) as era, 
+        AVG(base.strike_percentage) as strike_percentage,
+        SAFE_DIVIDE(SUM(base.hits) + SUM(base.walks), SUM(base.innings_pitched_decimal)) as whip,
+        AVG(base.k_percentage) as k_percentage,
+        AVG(base.avg_pitch_velocity) as avg_pitch_velocity,
+        MAX(base.max_pitch_velocity) as max_pitch_velocity,
+        pc.statcast_primary_pitch,
+        COUNT(
+          CASE WHEN base.is_quality_start IS TRUE THEN 1 END
+        ) as quality_starts
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_stats\` AS base
+      LEFT JOIN pitch_counts pc 
+        ON base.season = pc.season AND pc.rank = 1
+      WHERE base.player_id = '${playerId}'
+      GROUP BY base.season, pc.statcast_primary_pitch
+      ORDER BY base.season DESC`;
+    const data = await runQuery(query);
+    
+    // Format response with proper types (caught_stealing, hit_by_pitch, sacrifice_flies, war not in schema)
+    const formatted = data.map(row => ({
+      season: row.season,
+      team_name: row.team_name,
+      games: row.games || 0,
+      innings_pitched: row.innings_pitched_decimal || 0,
+      walks: row.walks || 0,
+      strikeouts: row.strikeouts || 0,
+      hits: row.hits || 0,
+      runs: row.runs || 0,
+      era: row.era || 0,
+      strike_percentage: row.strike_percentage || 0,
+      k_percentage: row.k_percentage || 0,
+      whip: row.whip || 0,
+      avg_pitch_velocity: row.avg_pitch_velocity || 0,
+      max_pitch_velocity: row.max_pitch_velocity || 0,
+      statcast_primary_pitch: row.statcast_primary_pitch || null,
+      quality_starts: row.quality_starts || 0,
       war: null
     }));
     
