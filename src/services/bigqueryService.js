@@ -1,183 +1,106 @@
-import axios from 'axios'
+import axios from 'axios';
 
-// This service connects to your backend API that interacts with BigQuery
-// In production, you'll need a backend service to handle BigQuery authentication
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
 /**
- * Fetch NHL data from BigQuery
+ * MLB Spotlight Services
  */
-export const fetchNHLData = async () => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/nhl`)
-    return response.data
-  } catch (error) {
-    console.error('Error fetching NHL data:', error)
-    // Return mock data if API is not available
-    return getMockNHLData()
-  }
-}
 
 /**
- * Fetch MLB data from BigQuery
+ * Fetches detailed rankings from fct_mlb__player_season_stats
+ * Powers the Savant-style sliders in the sidebar
  */
-export const fetchMLBData = async () => {
+export const fetchMLBPlayerSeasonStats = async (params = {}) => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/mlb`)
-    return response.data
+    const response = await axios.get(`${API_BASE_URL}/mlb/players/season-stats`, { params });
+    return response.data;
   } catch (error) {
-    console.error('Error fetching MLB data:', error)
-    return getMockMLBData()
+    console.error('Error fetching MLB player season stats:', error);
+    // Returns mock fallback matching your BigQuery schema
+    return getMockPlayerSeasonStats(params.playerId);
   }
-}
+};
 
 /**
- * Fetch MLB teams list (lightweight)
+ * Fetches raw coordinates from fct_mlb__statcast_pitches
+ * Powers the 3D Pitch Visualizer markers
+ */
+export const fetchMLBStatcastData = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/statcast/pitch-locations`, { params });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching MLB pitch location data:', error);
+    // Returns mock fallback for development
+    return getMockPitchData();
+  }
+};
+
+/**
+ * Placeholder Sport Services (NBA, NHL, NFL)
+ * Returns a signal that the UI interprets as "Not Created Yet"
+ */
+export const fetchNHLData = async () => ({ status: 'not_implemented', sport: 'NHL' });
+export const fetchNFLData = async () => ({ status: 'not_implemented', sport: 'NFL' });
+export const fetchNBAData = async () => ({ status: 'not_implemented', sport: 'NBA' });
+
+/**
+ * General MLB Utility Services
  */
 export const fetchMLBTeamsList = async (params = {}) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/teams/list`, { params })
-    return response.data
-  } catch (error) {
-    console.error('Error fetching MLB teams list:', error)
-    throw error
-  }
-}
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/list`, { params });
+  return response.data;
+};
 
-/**
- * Fetch MLB team standings (with filters)
- */
 export const fetchMLBTeams = async (params = {}) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/teams`, { params })
-    return response.data
-  } catch (error) {
-    console.error('Error fetching MLB teams:', error)
-    throw error
-  }
-}
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams`, { params });
+  return response.data;
+};
 
-/**
- * Fetch MLB players list (lightweight)
- */
-export const fetchMLBPlayersList = async (params = {}) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/players/list`, { params })
-    return response.data
-  } catch (error) {
-    console.error('Error fetching MLB players list:', error)
-    throw error
-  }
-}
-
-/**
- * Fetch MLB batting stats
- * @param {Object} params - Query parameters (limit, minAtBats)
- */
 export const fetchMLBBattingStats = async (params = {}) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/batting`, { params })
-    return response.data
-  } catch (error) {
-    console.error('Error fetching MLB batting stats:', error)
-    throw error
-  }
-}
+  const response = await axios.get(`${API_BASE_URL}/mlb/batting`, { params });
+  return response.data;
+};
 
-/**
- * Fetch MLB pitching stats
- * @param {Object} params - Query parameters (limit, minInnings)
- */
 export const fetchMLBPitchingStats = async (params = {}) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/pitching`, { params })
-    return response.data
-  } catch (error) {
-    console.error('Error fetching MLB pitching stats:', error)
-    throw error
-  }
-}
+  const response = await axios.get(`${API_BASE_URL}/mlb/pitching`, { params });
+  return response.data;
+};
 
-/**
- * Fetch recent MLB games
- * @param {Object} params - Query parameters (limit)
- */
 export const fetchMLBRecentGames = async (params = {}) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/games/recent`, { params })
-    return response.data
-  } catch (error) {
-    console.error('Error fetching MLB games:', error)
-    throw error
-  }
-}
+  const response = await axios.get(`${API_BASE_URL}/mlb/games/recent`, { params });
+  return response.data;
+};
 
-/**
- * Fetch MLB Statcast exit velocity data
- * @param {Object} params - Query parameters (limit)
- */
 export const fetchMLBStatcastExitVelocity = async (params = {}) => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/statcast/exit-velocity`, { params })
-    return response.data
-  } catch (error) {
-    console.error('Error fetching MLB Statcast data:', error)
-    throw error
-  }
-}
+  const response = await axios.get(`${API_BASE_URL}/mlb/statcast/exit-velocity`, { params });
+  return response.data;
+};
 
 /**
- * Fetch NFL data from BigQuery
+ * --- Development Mock Data Fallbacks ---
+ * These match your provided dbt/BigQuery schemas exactly.
  */
-export const fetchNFLData = async () => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/nfl`)
-    return response.data
-  } catch (error) {
-    console.error('Error fetching NFL data:', error)
-    return getMockNFLData()
-  }
-}
 
-/**
- * Fetch NBA data from BigQuery
- */
-export const fetchNBAData = async () => {
-  try {
-    const response = await axios.get(`${API_BASE_URL}/nba`)
-    return response.data
-  } catch (error) {
-    console.error('Error fetching NBA data:', error)
-    return getMockNBAData()
-  }
-}
+const getMockPlayerSeasonStats = (playerId) => [{
+  player_id: playerId || '660271',
+  player_name: 'Shohei Ohtani',
+  max_exit_velocity: 119.2,
+  exit_velo_percentile: 99.1,
+  barrel_rate: 22.4,
+  barrel_rate_percentile: 98.5,
+  hard_hit_rate: 54.2,
+  hard_hit_rate_percentile: 96.0,
+  home_runs_traditional: 44,
+  avg_sprint_speed: 28.5,
+  sprint_speed_percentile: 75.0,
+  bat_side: 'L' // Mapping to hand logic in visualizer
+}];
 
-// Mock data for development/testing
-const getMockNHLData = () => [
-  { name: 'Team A', value: 45 },
-  { name: 'Team B', value: 38 },
-  { name: 'Team C', value: 52 },
-  { name: 'Team D', value: 41 },
-]
-
-const getMockMLBData = () => [
-  { name: 'Team A', value: 92 },
-  { name: 'Team B', value: 85 },
-  { name: 'Team C', value: 78 },
-  { name: 'Team D', value: 88 },
-]
-
-const getMockNFLData = () => [
-  { name: 'Team A', value: 12 },
-  { name: 'Team B', value: 9 },
-  { name: 'Team C', value: 11 },
-  { name: 'Team D', value: 8 },
-]
-
-const getMockNBAData = () => [
-  { name: 'Team A', value: 48 },
-  { name: 'Team B', value: 52 },
-  { name: 'Team C', value: 45 },
-  { name: 'Team D', value: 50 },
-]
+const getMockPitchData = () => Array.from({ length: 40 }, () => ({
+  plate_x: (Math.random() - 0.5) * 2.5, // Horizontal position
+  plate_z: Math.random() * 3.5 + 1.2,    // Vertical height
+  outcome: Math.random() > 0.8 ? 'home_run' : 'strike',
+  release_speed: (Math.random() * 20 + 80).toFixed(1) // Map to release_speed from schema
+}));

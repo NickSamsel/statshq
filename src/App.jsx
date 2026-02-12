@@ -2,10 +2,10 @@ import React, { useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
 import './App.css'
 import Dashboard from './components/Dashboard'
-import NHLStats from './components/NHLStats'
-import MLBStats from './components/MLBStats'
-import NFLStats from './components/NFLStats'
-import NBAStats from './components/NBAStats'
+import NHLStats from './features/nhl/NHLStats'
+import MLBStats from './features/mlb/MLBStats'
+import NFLStats from './features/nfl/NFLStats'
+import NBAStats from './features/nba/NBAStats'
 
 function App() {
   return (
