@@ -117,18 +117,18 @@ app.get('/api/mlb/batting', async (req, res) => {
           player_id,
           ANY_VALUE(full_name) as player_name,
           ANY_VALUE(team_name) as team_name,
-          SUM(CAST(at_bats AS INT64)) as at_bats,
-          SUM(CAST(hits AS INT64)) as hits,
-          SUM(CAST(home_runs AS INT64)) as home_runs,
-          SUM(CAST(rbi AS INT64)) as rbi,
-          SUM(CAST(stolen_bases AS INT64)) as stolen_bases,
-          SUM(CAST(walks AS INT64)) as walks,
-          SUM(CAST(total_bases AS INT64)) as total_bases
+          SUM(at_bats) as at_bats,
+          SUM(hits) as hits,
+          SUM(home_runs) as home_runs,
+          SUM(rbi) as rbi,
+          SUM(stolen_bases) as stolen_bases,
+          SUM(walks) as walks,
+          SUM(total_bases) as total_bases
         FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batting_stats\`
         WHERE game_status = 'Final'
           AND season = EXTRACT(YEAR FROM CURRENT_DATE())
         GROUP BY player_id
-        HAVING SUM(CAST(at_bats AS INT64)) >= ${minAtBats}
+        HAVING SUM(at_bats) >= ${minAtBats}
       )
       SELECT 
         player_id,
@@ -167,17 +167,17 @@ app.get('/api/mlb/pitching', async (req, res) => {
           ANY_VALUE(player_name) as player_name,
           ANY_VALUE(team_name) as team_name,
           COUNT(*) as games,
-          SUM(CAST(innings_pitched_decimal AS FLOAT64)) as innings_pitched,
-          SUM(CAST(strikeouts AS INT64)) as strikeouts,
-          SUM(CAST(walks AS INT64)) as walks,
-          SUM(CAST(earned_runs AS INT64)) as earned_runs,
-          SUM(CAST(hits AS INT64)) as hits,
+          SUM(innings_pitched_decimal) as innings_pitched,
+          SUM(strikeouts) as strikeouts,
+          SUM(walks) as walks,
+          SUM(earned_runs) as earned_runs,
+          SUM(hits) as hits,
           SUM(CASE WHEN is_quality_start THEN 1 ELSE 0 END) as quality_starts
         FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_stats\`
         WHERE game_status = 'Final'
           AND season = EXTRACT(YEAR FROM CURRENT_DATE())
         GROUP BY player_id
-        HAVING SUM(CAST(innings_pitched_decimal AS FLOAT64)) >= ${minInnings}
+        HAVING SUM(innings_pitched_decimal) >= ${minInnings}
       )
       SELECT 
         player_id,
