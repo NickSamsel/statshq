@@ -110,7 +110,7 @@ app.get('/api/mlb/teams', async (req, res) => {
 // MLB Player Batting Stats
 app.get('/api/mlb/batting', async (req, res) => {
   try {
-    const { limit = 20, minAtBats = 100 } = req.query;
+    const { limit = 20, minAtBats = 100, season = 2025 } = req.query;
     const query = `
       WITH player_totals AS (
         SELECT 
@@ -126,9 +126,8 @@ app.get('/api/mlb/batting', async (req, res) => {
           SUM(total_bases) as total_bases
         FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batting_stats\`
         WHERE game_status = 'Final'
-          AND season = EXTRACT(YEAR FROM CURRENT_DATE())
+          AND season = ${season}
         GROUP BY player_id
-        HAVING SUM(at_bats) >= ${minAtBats}
       )
       SELECT 
         player_id,
@@ -144,6 +143,7 @@ app.get('/api/mlb/batting', async (req, res) => {
         ROUND(SAFE_DIVIDE(total_bases, at_bats), 3) as slugging_pct,
         ROUND(SAFE_DIVIDE(hits + walks, at_bats + walks) + SAFE_DIVIDE(total_bases, at_bats), 3) as ops
       FROM player_totals
+      WHERE at_bats >= ${minAtBats}
       ORDER BY ops DESC
       LIMIT ${limit}
     `;
@@ -159,7 +159,7 @@ app.get('/api/mlb/batting', async (req, res) => {
 // MLB Player Pitching Stats
 app.get('/api/mlb/pitching', async (req, res) => {
   try {
-    const { limit = 20, minInnings = 50 } = req.query;
+    const { limit = 20, minInnings = 50, season = 2025 } = req.query;
     const query = `
       WITH pitcher_totals AS (
         SELECT 
@@ -175,9 +175,8 @@ app.get('/api/mlb/pitching', async (req, res) => {
           SUM(CASE WHEN is_quality_start THEN 1 ELSE 0 END) as quality_starts
         FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_stats\`
         WHERE game_status = 'Final'
-          AND season = EXTRACT(YEAR FROM CURRENT_DATE())
+          AND season = ${season}
         GROUP BY player_id
-        HAVING SUM(innings_pitched_decimal) >= ${minInnings}
       )
       SELECT 
         player_id,
@@ -194,6 +193,7 @@ app.get('/api/mlb/pitching', async (req, res) => {
         ROUND(SAFE_DIVIDE(walks + hits, NULLIF(innings_pitched, 0)), 2) as whip,
         ROUND(SAFE_DIVIDE(strikeouts, NULLIF(walks, 0)), 2) as k_bb_ratio
       FROM pitcher_totals
+      WHERE innings_pitched >= ${minInnings}
       ORDER BY era ASC
       LIMIT ${limit}
     `;
