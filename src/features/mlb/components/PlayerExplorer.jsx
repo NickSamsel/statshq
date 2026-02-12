@@ -6,7 +6,8 @@ import LoadingSpinner3D from '../../../components/LoadingSpinner3D';
 import { 
   fetchMLBPlayersList, 
   fetchMLBPlayerInfo, 
-  fetchMLBPlayerSeasonHistory,
+  fetchMLBPlayerBattingSeasons,
+  fetchMLBPlayerPitchingSeasons,
   fetchMLBStatcastData,
   fetchMLBBattedBallStats
 } from '../../../services/bigqueryService';
@@ -24,7 +25,8 @@ export default function PlayerExplorer() {
   const [players, setPlayers] = useState([]);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerInfo, setPlayerInfo] = useState(null);
-  const [seasonStats, setSeasonStats] = useState([]);
+  const [battingSeasons, setBattingSeasons] = useState([]);
+  const [pitchingSeasons, setPitchingSeasons] = useState([]);
   const [pitchData, setPitchData] = useState([]);
   const [battedBallStats, setBattedBallStats] = useState(null);
   const [selectedSeason, setSelectedSeason] = useState('2024');
@@ -63,21 +65,34 @@ export default function PlayerExplorer() {
     setLoading(true);
 
     try {
-      // Load player info and season history
-      const [info, stats] = await Promise.all([
-        fetchMLBPlayerInfo(player.player_id),
-        fetchMLBPlayerSeasonHistory(player.player_id)
-      ]);
-
+      // Load player info first to determine player type
+      const info = await fetchMLBPlayerInfo(player.player_id);
       setPlayerInfo(info);
-      setSeasonStats(stats);
+
+      // Load appropriate season stats based on player type
+      const promises = [];
+      if (info.is_batter) {
+        promises.push(fetchMLBPlayerBattingSeasons(player.player_id));
+      } else {
+        promises.push(Promise.resolve([]));
+      }
+      if (info.is_pitcher) {
+        promises.push(fetchMLBPlayerPitchingSeasons(player.player_id));
+      } else {
+        promises.push(Promise.resolve([]));
+      }
+
+      const [battingStats, pitchingStats] = await Promise.all(promises);
+      setBattingSeasons(battingStats);
+      setPitchingSeasons(pitchingStats);
 
       // Determine viewType based on player type flags from API
       const defaultViewType = info.is_batter ? 'batting' : info.is_pitcher ? 'pitching' : 'batting';
       setViewType(defaultViewType);
 
-      // Load pitch data for most recent season (only for batters)
-      if (stats.length > 0 && info.is_batter) {
+      // Load pitch data for most recent season
+      const stats = info.is_batter ? battingStats : pitchingStats;
+      if (stats.length > 0) {
         const recentSeason = stats[0].season;
         setSelectedSeason(recentSeason);
         await loadPitchData(player.player_id, recentSeason, defaultViewType);
@@ -120,7 +135,8 @@ export default function PlayerExplorer() {
   };
 
   // Get unique seasons from stats
-  const availableSeasons = seasonStats.map(s => s.season).filter((v, i, a) => a.indexOf(v) === i);
+  const stats = viewType === 'batting' ? battingSeasons : pitchingSeasons;
+  const availableSeasons = stats.map(s => s.season).filter((v, i, a) => a.indexOf(v) === i);
 
   // Check if player is two-way using API flags
   const isTwoWay = playerInfo && playerInfo.is_two_way_player;
@@ -349,7 +365,7 @@ export default function PlayerExplorer() {
                 <span>⚾</span> Career Batting Statistics
               </h3>
               <SeasonStatsTable 
-                seasons={seasonStats} 
+                seasons={battingSeasons} 
                 playerType="batter" 
               />
             </div>
@@ -370,7 +386,7 @@ export default function PlayerExplorer() {
                 <span>🔥</span> Career Pitching Statistics
               </h3>
               <SeasonStatsTable 
-                seasons={seasonStats} 
+                seasons={pitchingSeasons} 
                 playerType="pitcher" 
               />
             </div>

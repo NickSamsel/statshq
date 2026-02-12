@@ -127,16 +127,38 @@ export const fetchMLBPlayerInfo = async (playerId) => {
 };
 
 /**
- * Fetches player's season-by-season history
+ * Fetches player's season-by-season batting history
  */
-export const fetchMLBPlayerSeasonHistory = async (playerId) => {
+export const fetchMLBPlayerBattingSeasons = async (playerId) => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/players/${playerId}/seasons`);
+    const response = await axios.get(`${API_BASE_URL}/mlb/players/${playerId}/season-batting-stats`);
     return response.data;
   } catch (error) {
-    console.error('Error fetching MLB player season history:', error);
+    console.error('Error fetching MLB player batting seasons:', error);
     return getMockSeasonHistory(playerId);
   }
+};
+
+/**
+ * Fetches player's season-by-season pitching history
+ */
+export const fetchMLBPlayerPitchingSeasons = async (playerId) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/players/${playerId}/season-pitching-stats`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching MLB player pitching seasons:', error);
+    return getMockSeasonHistory(playerId);
+  }
+};
+
+/**
+ * Fetches player's season-by-season history (legacy - prefer specific endpoints)
+ * @deprecated Use fetchMLBPlayerBattingSeasons or fetchMLBPlayerPitchingSeasons instead
+ */
+export const fetchMLBPlayerSeasonHistory = async (playerId) => {
+  // Default to batting stats for backwards compatibility
+  return fetchMLBPlayerBattingSeasons(playerId);
 };
 
 /**

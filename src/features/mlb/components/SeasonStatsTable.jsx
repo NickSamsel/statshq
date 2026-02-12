@@ -88,18 +88,18 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
                 </>
               ) : (
                 <>
-                  <th style={headerStyle}>W</th>
-                  <th style={headerStyle}>L</th>
                   <th style={headerStyle}>ERA</th>
                   <th style={headerStyle}>IP</th>
                   <th style={headerStyle}>H</th>
                   <th style={headerStyle}>R</th>
-                  <th style={headerStyle}>ER</th>
                   <th style={headerStyle}>BB</th>
                   <th style={headerStyle}>SO</th>
                   <th style={headerStyle}>WHIP</th>
                   <th style={headerStyle}>K/9</th>
-                  <th style={headerStyle}>WAR</th>
+                  <th style={headerStyle}>K%</th>
+                  <th style={headerStyle}>Str%</th>
+                  <th style={headerStyle}>Velo</th>
+                  <th style={headerStyle}>QS</th>
                 </>
               )}
             </tr>
@@ -156,22 +156,28 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
                   </>
                 ) : (
                   <>
-                    <td style={cellStyle}>{season.wins || 0}</td>
-                    <td style={cellStyle}>{season.losses || 0}</td>
                     <td style={{...cellStyle, color: '#00f2ff', fontWeight: '600'}}>
                       {season.era?.toFixed(2) || '0.00'}
                     </td>
                     <td style={cellStyle}>{season.innings_pitched?.toFixed(1) || '0.0'}</td>
                     <td style={cellStyle}>{season.hits || 0}</td>
                     <td style={cellStyle}>{season.runs || 0}</td>
-                    <td style={cellStyle}>{season.earned_runs || 0}</td>
                     <td style={cellStyle}>{season.walks || 0}</td>
                     <td style={cellStyle}>{season.strikeouts || 0}</td>
                     <td style={cellStyle}>{season.whip?.toFixed(2) || '0.00'}</td>
-                    <td style={cellStyle}>{season.k_per_9?.toFixed(1) || '0.0'}</td>
-                    <td style={{...cellStyle, color: '#FFD700', fontWeight: '600'}}>
-                      {season.war?.toFixed(1) || '0.0'}
+                    <td style={cellStyle}>
+                      {season.innings_pitched > 0 
+                        ? ((season.strikeouts / season.innings_pitched) * 9).toFixed(1) 
+                        : '0.0'}
                     </td>
+                    <td style={cellStyle}>
+                      {season.k_percentage ? season.k_percentage.toFixed(1) + '%' : '0.0%'}
+                    </td>
+                    <td style={cellStyle}>
+                      {season.strike_percentage ? season.strike_percentage.toFixed(1) + '%' : '0.0%'}
+                    </td>
+                    <td style={cellStyle}>{season.avg_pitch_velocity?.toFixed(1) || '0.0'}</td>
+                    <td style={cellStyle}>{season.quality_starts || 0}</td>
                   </>
                 )}
               </tr>
