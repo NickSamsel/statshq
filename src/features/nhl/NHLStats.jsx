@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { fetchNHLData } from '../services/bigqueryService'
+import { fetchNHLData } from '../../services/bigqueryService'
 
 function NHLStats() {
   const [data, setData] = useState([])

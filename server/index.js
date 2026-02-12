@@ -3,176 +3,96 @@ const cors = require('cors');
 const { BigQuery } = require('@google-cloud/bigquery');
 const path = require('path');
 
-// Load .env file
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Enable CORS
-const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:3000',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000'
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  }
-}));
-
+// --- 1. GLOBAL MIDDLEWARE (MUST BE FIRST) ---
+// Development-friendly CORS: Allow any origin to rule out CSP/CORS blockers
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
-const bigqueryConfig = {
+const bigquery = new BigQuery({
   projectId: process.env.GCP_PROJECT_ID,
-};
-
-if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  bigqueryConfig.keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-}
-
-const bigquery = new BigQuery(bigqueryConfig);
+  ...(process.env.GOOGLE_APPLICATION_CREDENTIALS && { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS })
+});
 const DATASET = 'mlb';
 
 async function runQuery(query) {
-  const [rows] = await bigquery.query({
-    query: query,
-    location: 'US',
-  });
+  const [rows] = await bigquery.query({ query, location: 'US' });
   return rows;
 }
 
-/** * NEW: Player Spotlight & 3D Analytics Endpoints
- */
+// --- 2. ACTUAL API ROUTES ---
 
-// Fetches 3D Coordinate data for the PitchVisualizer
-app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
-  try {
-    const { playerId, season = 2025, limit = 60 } = req.query;
-    if (!playerId) return res.status(400).json({ error: 'playerId is required' });
-
-    const query = `
-      SELECT 
-        SAFE.CAST(plate_x AS FLOAT64) as plate_x, 
-        SAFE.CAST(plate_z AS FLOAT64) as plate_z, 
-        release_speed as velocity,
-        pitch_type_description as type,
-        count_description as outcome
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_pitches\`
-      WHERE batter_id = '${playerId}'
-        AND season = ${season}
-        AND plate_x IS NOT NULL 
-        AND plate_z IS NOT NULL
-      ORDER BY game_date DESC, pitch_number DESC
-      LIMIT ${limit}
-    `;
-    
-    const data = await runQuery(query);
-    res.json(data);
-  } catch (error) {
-    console.error('BQ Pitch Error:', error);
-    res.status(500).json({ error: 'Failed to fetch pitch locations' });
-  }
+// Root route - API info
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Stats HQ API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      mlb: {
+        pitchLocations: '/api/mlb/statcast/pitch-locations?playerId=XXX&season=2025',
+        seasonStats: '/api/mlb/players/season-stats?playerId=XXX&season=2025',
+        batting: '/api/mlb/batting?season=2025&limit=20'
+      }
+    }
+  });
 });
 
-// Fetches Season Percentiles for the Spotlight Sidebar
+// Health check (Verify this at http://localhost:8080/health)
+app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
+
+// Silently handle common browser requests
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+app.get('/.well-known/*', (req, res) => res.status(204).end());
+
+// New: 3D Pitch Locations
+app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
+  try {
+    const { playerId, season = 2025 } = req.query;
+    const query = `
+      SELECT plate_x, plate_z, release_speed as velocity, count_description as outcome
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_pitches\`
+      WHERE batter_id = '${playerId}' AND season = ${season}
+      LIMIT 60`;
+    const data = await runQuery(query);
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// New: Season Percentiles
 app.get('/api/mlb/players/season-stats', async (req, res) => {
   try {
     const { playerId, season = 2025 } = req.query;
-    if (!playerId) return res.status(400).json({ error: 'playerId is required' });
-
     const query = `
-      SELECT *
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\`
-      WHERE player_id = '${playerId}'
-        AND season = ${season}
-      LIMIT 1
-    `;
-    
+      SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\`
+      WHERE player_id = '${playerId}' AND season = ${season} LIMIT 1`;
     const data = await runQuery(query);
     res.json(data);
-  } catch (error) {
-    console.error('BQ Season Stats Error:', error);
-    res.status(500).json({ error: 'Failed to fetch season rankings' });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-/** * EXISTING: MLB Utility Endpoints
- */
-
-app.get('/api/mlb/teams/list', async (req, res) => {
-  try {
-    const { season = 2025 } = req.query;
-    const query = `
-      SELECT DISTINCT team_id, team_name, team_abbr, season
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__teams\`
-      WHERE season = ${season}
-      ORDER BY team_name
-    `;
-    const data = await runQuery(query);
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch teams list' });
-  }
-});
-
+// Existing Batting Stats
 app.get('/api/mlb/batting', async (req, res) => {
   try {
-    const { limit = 20, season = 2025, teamId } = req.query;
-    const teamFilter = teamId ? `AND team_id = '${teamId}'` : '';
+    const { season = 2025, limit = 20 } = req.query;
     const query = `
-      SELECT 
-        player_id, player_name, team_name, at_bats, hits, home_runs,
-        ROUND(SAFE_DIVIDE(hits, at_bats), 3) as batting_average,
-        ROUND(SAFE_DIVIDE(hits + walks, at_bats + walks) + SAFE_DIVIDE(total_bases, at_bats), 3) as ops
+      SELECT player_id, full_name as player_name, team_name, home_runs,
+      ROUND(SAFE_DIVIDE(hits, at_bats), 3) as batting_average
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batting_stats\`
-      WHERE season = ${season} ${teamFilter}
-      ORDER BY ops DESC
-      LIMIT ${limit}
-    `;
+      WHERE season = ${season} ORDER BY home_runs DESC LIMIT ${limit}`;
     const data = await runQuery(query);
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch batting stats' });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/mlb/statcast/exit-velocity', async (req, res) => {
-  try {
-    const { limit = 100, season = 2025, minExitVelo = 95 } = req.query;
-    const query = `
-      SELECT 
-        batter_name as player_name, batter_id as player_id, launch_speed as exit_velocity,
-        launch_angle, hit_result as outcome, game_date
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_batted_balls\`
-      WHERE launch_speed >= ${minExitVelo} AND season = ${season}
-      ORDER BY launch_speed DESC
-      LIMIT ${limit}
-    `;
-    const data = await runQuery(query);
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch Statcast data' });
-  }
+// --- 3. THE 404 HANDLER (MUST BE LAST) ---
+app.use((req, res) => {
+  console.log(`404 hit: ${req.method} ${req.url}`);
+  res.status(404).json({ error: "Route not found", path: req.url });
 });
 
-/**
- * PLACEHOLDER ENDPOINTS (NBA, NFL, NHL)
- */
-app.get('/api/nhl', async (req, res) => { res.json({ message: "NHL data logic goes here" }); });
-app.get('/api/nba', async (req, res) => { res.json({ message: "NBA data logic goes here" }); });
-app.get('/api/nfl', async (req, res) => { res.json({ message: "NFL data logic goes here" }); });
-
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Stats HQ Backend running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import MLBStats from './features/mlb/MLBStats';
-import NotCreatedYet from './components/NotCreatedYet';
+import MLBStats from '../features/mlb/MLBStats';
+import NotCreatedYet from './NotCreatedYet';
 
 function Dashboard() {
   const [activeSport, setActiveSport] = useState(null);
