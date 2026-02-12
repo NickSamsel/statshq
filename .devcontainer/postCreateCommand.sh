@@ -25,7 +25,7 @@ fi
 if [ -n "$GCP_PROJECT_ID" ]; then
     cat > .env << EOF
 GCP_PROJECT_ID=$GCP_PROJECT_ID
-GOOGLE_APPLICATION_CREDENTIALS=./server/gcp-key.json
+GOOGLE_APPLICATION_CREDENTIALS=/workspaces/statshq/server/gcp-key.json
 PORT=8080
 FRONTEND_URL=http://localhost:5173
 VITE_API_BASE_URL=http://localhost:8080/api

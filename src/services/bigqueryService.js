@@ -33,6 +33,101 @@ export const fetchMLBData = async () => {
 }
 
 /**
+ * Fetch MLB teams list (lightweight)
+ */
+export const fetchMLBTeamsList = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/teams/list`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB teams list:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch MLB team standings (with filters)
+ */
+export const fetchMLBTeams = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/teams`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB teams:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch MLB players list (lightweight)
+ */
+export const fetchMLBPlayersList = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/players/list`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB players list:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch MLB batting stats
+ * @param {Object} params - Query parameters (limit, minAtBats)
+ */
+export const fetchMLBBattingStats = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/batting`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB batting stats:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch MLB pitching stats
+ * @param {Object} params - Query parameters (limit, minInnings)
+ */
+export const fetchMLBPitchingStats = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/pitching`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB pitching stats:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch recent MLB games
+ * @param {Object} params - Query parameters (limit)
+ */
+export const fetchMLBRecentGames = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/games/recent`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB games:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch MLB Statcast exit velocity data
+ * @param {Object} params - Query parameters (limit)
+ */
+export const fetchMLBStatcastExitVelocity = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/statcast/exit-velocity`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB Statcast data:', error)
+    throw error
+  }
+}
+
+/**
  * Fetch NFL data from BigQuery
  */
 export const fetchNFLData = async () => {
