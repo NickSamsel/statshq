@@ -3,10 +3,8 @@ const cors = require('cors');
 const { BigQuery } = require('@google-cloud/bigquery');
 const path = require('path');
 
-// Only load .env if not in Codespaces (Codespaces uses secrets)
-if (!process.env.CODESPACES) {
-  require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-}
+// Load .env file (created by postCreateCommand.sh in Codespaces)
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 8080;
