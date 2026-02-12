@@ -33,14 +33,40 @@ export const fetchMLBData = async () => {
 }
 
 /**
- * Fetch MLB team standings
+ * Fetch MLB teams list (lightweight)
  */
-export const fetchMLBTeams = async () => {
+export const fetchMLBTeamsList = async (params = {}) => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/mlb/teams`)
+    const response = await axios.get(`${API_BASE_URL}/mlb/teams/list`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB teams list:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch MLB team standings (with filters)
+ */
+export const fetchMLBTeams = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/teams`, { params })
     return response.data
   } catch (error) {
     console.error('Error fetching MLB teams:', error)
+    throw error
+  }
+}
+
+/**
+ * Fetch MLB players list (lightweight)
+ */
+export const fetchMLBPlayersList = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/players/list`, { params })
+    return response.data
+  } catch (error) {
+    console.error('Error fetching MLB players list:', error)
     throw error
   }
 }

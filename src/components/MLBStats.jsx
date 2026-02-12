@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, ScatterChart, Scatter, ZAxis 
 } from 'recharts'
 import { 
+  fetchMLBTeamsList,
   fetchMLBTeams, 
   fetchMLBBattingStats, 
   fetchMLBPitchingStats,
@@ -13,41 +14,172 @@ import {
 
 function MLBStats() {
   const [activeTab, setActiveTab] = useState('teams')
+  const [season, setSeason] = useState(2025)
+  const [selectedTeam, setSelectedTeam] = useState('')
+  const [teamsList, setTeamsList] = useState([])
+  
   const [teams, setTeams] = useState([])
   const [batting, setBatting] = useState([])
   const [pitching, setPitching] = useState([])
   const [games, setGames] = useState([])
   const [statcast, setStatcast] = useState([])
-  const [loading, setLoading] = useState(true)
+  
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [dataLoaded, setDataLoaded] = useState(false)
 
+  // Load lightweight team list on mount
   useEffect(() => {
-    loadData()
-  }, [activeTab])
+    loadTeamsList()
+  }, [season])
+
+  const loadTeamsList = async () => {
+    try {
+      const data = await fetchMLBTeamsList({ season })
+      setTeamsList(data)
+    } catch (err) {
+      console.error('Error loading teams list:', err)
+    }
+  }
 
   const loadData = async () => {
+    if (!dataLoaded && activeTab === 'teams') {
+      // Auto-load teams tab
+      await loadTeamsData()
+      return
+    }
+    
+    if (dataLoaded) return // Don't reload if already loaded
+  }
+
+  const loadTeamsData = async () => {
     try {
       setLoading(true)
       setError(null)
-      
-      switch(activeTab) {
-        case 'teams':
-          if (teams.length === 0) {
-            const data = await fetchMLBTeams()
-            setTeams(data)
-          }
-          break
-        case 'batting':
-          if (batting.length === 0) {
-            const data = await fetchMLBBattingStats({ limit: 20, minAtBats: 100 })
-            setBatting(data)
-          }
-          break
-        case 'pitching':
-          if (pitching.length === 0) {
-            const data = await fetchMLBPitchingStats({ limit: 20, minInnings: 50 })
-            setPitching(data)
-          }
+      const data = await fetchMLBTeams({ 
+        season,
+        teamId: selectedTeam,
+        limit: 30 
+      })
+      setTeams(data)
+      setDataLoaded(true)
+    } catch (err) {
+      setError(err.message)
+      console.error('Error loading teams data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadBattingData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await fetchMLBBattingStats({ 
+        season,
+        teamId: selectedTeam,
+        limit: 20, 
+        minAtBats: 50 
+      })
+      setBatting(data)
+      setDataLoaded(true)
+    } catch (err) {
+      setError(err.message)
+      console.error('Error loading batting data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadPitchingData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await fetchMLBPitchingStats({ 
+        season,
+        teamId: selectedTeam,
+        limit: 20, 
+        minInnings: 30 
+      })
+      setPitching(data)
+      setDataLoaded(true)
+    } catch (err) {
+      setError(err.message)
+      console.error('Error loading pitching data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadGamesData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await fetchMLBRecentGames({ 
+        season,
+        teamId: selectedTeam,
+        limit: 25 
+      })
+      setGames(data)
+      setDataLoaded(true)
+    } catch (err) {
+      setError(err.message)
+      console.error('Error loading games data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadStatcastData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await fetchMLBStatcastExitVelocity({ 
+        season,
+        limit: 50,
+        minExitVelo: 100
+      })
+      setStatcast(data)
+      setDataLoaded(true)
+    } catch (err) {
+      setError(err.message)
+      console.error('Error loading Statcast data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab)
+    setDataLoaded(false)
+    setError(null)
+  }
+
+  const handleLoadStats = () => {
+    switch(activeTab) {
+      case 'teams':
+        loadTeamsData()
+        break
+      case 'batting':
+        loadBattingData()
+        break
+      case 'pitching':
+        loadPitchingData()
+        break
+      case 'games':
+        loadGamesData()
+        break
+      case 'statcast':
+        loadStatcastData()
+        break
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'teams') {
+      loadData()
+    }
+  }, [activeTab])
           break
         case 'games':
           if (games.length === 0) {
@@ -296,17 +428,87 @@ function MLBStats() {
     </div>
   )
 
-  if (loading) return <div className="loading">Loading MLB stats...</div>
-  if (error) return <div className="error">Error loading data: {error}</div>
-
   return (
     <div className="page-container">
       <h1 className="page-title">MLB Statistics</h1>
       
+      {/* Filters */}
+      <div style={{ 
+        backgroundColor: '#f8f9fa', 
+        padding: '15px', 
+        marginBottom: '20px', 
+        borderRadius: '8px',
+        border: '1px solid #dee2e6'
+      }}>
+        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ marginRight: '8px', fontWeight: 'bold' }}>Season:</label>
+            <select 
+              value={season} 
+              onChange={(e) => {
+                setSeason(Number(e.target.value))
+                setDataLoaded(false)
+              }}
+              style={{ padding: '5px 10px', borderRadius: '4px', border: '1px solid #ccc' }}
+            >
+              {[2025, 2024, 2023, 2022, 2021, 2020].map(yr => (
+                <option key={yr} value={yr}>{yr}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label style={{ marginRight: '8px', fontWeight: 'bold' }}>Team:</label>
+            <select 
+              value={selectedTeam} 
+              onChange={(e) => {
+                setSelectedTeam(e.target.value)
+                setDataLoaded(false)
+              }}
+              style={{ padding: '5px 10px', borderRadius: '4px', border: '1px solid #ccc', minWidth: '150px' }}
+            >
+              <option value="">All Teams</option>
+              {teamsList.map(team => (
+                <option key={team.team_id} value={team.team_id}>
+                  {team.team_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <button
+            onClick={handleLoadStats}
+            disabled={loading}
+            style={{
+              padding: '8px 20px',
+              backgroundColor: loading ? '#6c757d' : '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            {loading ? 'Loading...' : (dataLoaded ? 'Refresh Stats' : 'Load Stats')}
+          </button>
+          
+          {dataLoaded && (
+            <span style={{ color: '#28a745', fontWeight: 'bold' }}>
+              ✓ Data loaded for {season} {selectedTeam && `(${teamsList.find(t => t.team_id === selectedTeam)?.team_abbr})`}
+            </span>
+          )}
+        </div>
+        
+        <div style={{ marginTop: '10px', fontSize: '0.9em', color: '#666' }}>
+          💡 <strong>Tip:</strong> Select filters above and click "Load Stats" to query your BigQuery data. 
+          This optimizes costs by preventing unnecessary full-table scans.
+        </div>
+      </div>
+      
       {/* Tab Navigation */}
       <div style={{ marginBottom: '20px', borderBottom: '2px solid #ddd' }}>
         <button 
-          onClick={() => setActiveTab('teams')}
+          onClick={() => handleTabChange('teams')}
           style={{
             padding: '10px 20px',
             marginRight: '5px',
@@ -320,7 +522,7 @@ function MLBStats() {
           Teams
         </button>
         <button 
-          onClick={() => setActiveTab('batting')}
+          onClick={() => handleTabChange('batting')}
           style={{
             padding: '10px 20px',
             marginRight: '5px',
@@ -334,7 +536,7 @@ function MLBStats() {
           Batting
         </button>
         <button 
-          onClick={() => setActiveTab('pitching')}
+          onClick={() => handleTabChange('pitching')}
           style={{
             padding: '10px 20px',
             marginRight: '5px',
@@ -348,7 +550,7 @@ function MLBStats() {
           Pitching
         </button>
         <button 
-          onClick={() => setActiveTab('games')}
+          onClick={() => handleTabChange('games')}
           style={{
             padding: '10px 20px',
             marginRight: '5px',
@@ -362,7 +564,7 @@ function MLBStats() {
           Recent Games
         </button>
         <button 
-          onClick={() => setActiveTab('statcast')}
+          onClick={() => handleTabChange('statcast')}
           style={{
             padding: '10px 20px',
             backgroundColor: activeTab === 'statcast' ? '#4CAF50' : '#f0f0f0',
@@ -376,12 +578,40 @@ function MLBStats() {
         </button>
       </div>
 
-      {/* Content */}
-      {activeTab === 'teams' && renderTeamsView()}
-      {activeTab === 'batting' && renderBattingView()}
-      {activeTab === 'pitching' && renderPitchingView()}
-      {activeTab === 'games' && renderGamesView()}
-      {activeTab === 'statcast' && renderStatcastView()}
+      {/* Loading/Error State */}
+      {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading data...</div>}
+      {error && <div style={{ padding: '20px', color: 'red', backgroundColor: '#ffebee', borderRadius: '4px' }}>Error: {error}</div>}
+      
+      {/* Content - Only show if data is loaded or it's the teams tab */}
+      {!loading && !error && (
+        <>
+          {(!dataLoaded && activeTab !== 'teams') && (
+            <div style={{ 
+              padding: '40px', 
+              textAlign: 'center', 
+              backgroundColor: '#f8f9fa', 
+              borderRadius: '8px',
+              border: '2px dashed #dee2e6'
+            }}>
+              <h3>👆 Select your filters and click "Load Stats"</h3>
+              <p style={{ color: '#666' }}>
+                Choose a season and optionally a team above, then click the "Load Stats" button 
+                to query your BigQuery data efficiently.
+              </p>
+            </div>
+          )}
+          
+          {(dataLoaded || activeTab === 'teams') && (
+            <>
+              {activeTab === 'teams' && renderTeamsView()}
+              {activeTab === 'batting' && renderBattingView()}
+              {activeTab === 'pitching' && renderPitchingView()}
+              {activeTab === 'games' && renderGamesView()}
+              {activeTab === 'statcast' && renderStatcastView()}
+            </>
+          )}
+        </>
+      )}
     </div>
   )
 }
