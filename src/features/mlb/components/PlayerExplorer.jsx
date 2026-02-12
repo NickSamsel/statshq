@@ -72,16 +72,15 @@ export default function PlayerExplorer() {
       setPlayerInfo(info);
       setSeasonStats(stats);
 
-      // Determine if player is pitcher, batter, or both
-      const isPitcher = info.primary_position === 'P';
-      const isBatter = !isPitcher || info.bat_side; // Assume batter if not pitcher or has batting side
-      setViewType(isBatter ? 'batting' : 'pitching');
+      // Determine viewType based on player type flags from API
+      const defaultViewType = info.is_batter ? 'batting' : info.is_pitcher ? 'pitching' : 'batting';
+      setViewType(defaultViewType);
 
-      // Load pitch data for most recent season
-      if (stats.length > 0) {
+      // Load pitch data for most recent season (only for batters)
+      if (stats.length > 0 && info.is_batter) {
         const recentSeason = stats[0].season;
         setSelectedSeason(recentSeason);
-        await loadPitchData(player.player_id, recentSeason, isBatter ? 'batting' : 'pitching');
+        await loadPitchData(player.player_id, recentSeason, defaultViewType);
       }
     } catch (error) {
       console.error('Error loading player data:', error);
@@ -123,8 +122,8 @@ export default function PlayerExplorer() {
   // Get unique seasons from stats
   const availableSeasons = seasonStats.map(s => s.season).filter((v, i, a) => a.indexOf(v) === i);
 
-  // Check if player is two-way (both pitcher and batter stats)
-  const isTwoWay = playerInfo && playerInfo.primary_position === 'P' && playerInfo.bat_side;
+  // Check if player is two-way using API flags
+  const isTwoWay = playerInfo && playerInfo.is_two_way_player;
 
   return (
     <div style={{
@@ -290,8 +289,8 @@ export default function PlayerExplorer() {
             <PlayerInfoCard player={playerInfo} />
           </div>
 
-          {/* View Type Toggle (for two-way players) */}
-          {isTwoWay && (
+          {/* View Type Toggle (for two-way players viewing pitch heatmap) */}
+          {isTwoWay && playerInfo.is_batter && (
             <div style={{
               display: 'flex',
               gap: '12px',
@@ -315,7 +314,7 @@ export default function PlayerExplorer() {
                   transition: 'all 0.2s'
                 }}
               >
-                Batting Profile
+                Batting Pitch Map
               </button>
               <button
                 onClick={() => handleViewTypeChange('pitching')}
@@ -330,60 +329,110 @@ export default function PlayerExplorer() {
                   transition: 'all 0.2s'
                 }}
               >
-                Pitching Profile
+                Pitching Pitch Map
               </button>
             </div>
           )}
 
-          {/* Season Stats Table */}
-          <div style={{ marginBottom: '40px' }}>
-            <SeasonStatsTable 
-              seasons={seasonStats} 
-              playerType={viewType === 'batting' ? 'batter' : 'pitcher'} 
-            />
-          </div>
-
-          {/* Season Filter */}
-          {availableSeasons.length > 0 && (
-            <div style={{
-              marginBottom: '24px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px'
-            }}>
-              <label style={{ color: '#888', fontSize: '0.875rem', fontWeight: '600' }}>
-                Filter by Season:
-              </label>
-              <select
-                value={selectedSeason}
-                onChange={(e) => handleSeasonChange(e.target.value)}
-                style={{
-                  padding: '10px 16px',
-                  background: '#0a0a0a',
-                  border: '1px solid #333',
-                  borderRadius: '8px',
-                  color: '#fff',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  outline: 'none'
-                }}
-              >
-                {availableSeasons.map((season) => (
-                  <option key={season} value={season}>
-                    {season} Season
-                  </option>
-                ))}
-              </select>
+          {/* Batting Stats Table */}
+          {playerInfo.is_batter && (
+            <div style={{ marginBottom: '40px' }}>
+              <h3 style={{ 
+                color: '#00f2ff', 
+                fontSize: '1.25rem', 
+                fontWeight: '600',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <span>⚾</span> Career Batting Statistics
+              </h3>
+              <SeasonStatsTable 
+                seasons={seasonStats} 
+                playerType="batter" 
+              />
             </div>
           )}
 
-          {/* Pitch Heatmap */}
-          <PitchHeatmap 
-            pitches={pitchData} 
-            handedness={playerInfo.bat_side || playerInfo.pitch_hand}
-            viewType={viewType}
-            battedBallStats={battedBallStats}
-          />
+          {/* Pitching Stats Table */}
+          {playerInfo.is_pitcher && (
+            <div style={{ marginBottom: '40px' }}>
+              <h3 style={{ 
+                color: '#00f2ff', 
+                fontSize: '1.25rem', 
+                fontWeight: '600',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <span>🔥</span> Career Pitching Statistics
+              </h3>
+              <SeasonStatsTable 
+                seasons={seasonStats} 
+                playerType="pitcher" 
+              />
+            </div>
+          )}
+
+          {/* Pitch Heatmap (only for batters) */}
+          {playerInfo.is_batter && (
+            <div>
+              <h3 style={{ 
+                color: '#00f2ff', 
+                fontSize: '1.25rem', 
+                fontWeight: '600',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px'
+              }}>
+                <span>🎯</span> Pitch Location Heat Map
+              </h3>
+              
+              {/* Season Filter */}
+              {availableSeasons.length > 0 && (
+                <div style={{
+                  marginBottom: '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px'
+                }}>
+                  <label style={{ color: '#888', fontSize: '0.875rem', fontWeight: '600' }}>
+                    Filter by Season:
+                  </label>
+                  <select
+                    value={selectedSeason}
+                    onChange={(e) => handleSeasonChange(e.target.value)}
+                    style={{
+                      padding: '10px 16px',
+                      background: '#0a0a0a',
+                      border: '1px solid #333',
+                      borderRadius: '8px',
+                      color: '#fff',
+                      fontSize: '0.875rem',
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                  >
+                    {availableSeasons.map((season) => (
+                      <option key={season} value={season}>
+                        {season} Season
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <PitchHeatmap 
+                pitches={pitchData} 
+                handedness={playerInfo.bat_side_code || playerInfo.pitch_hand_code}
+                viewType={viewType}
+                battedBallStats={battedBallStats}
+              />
+            </div>
+          )}
         </div>
       )}
 

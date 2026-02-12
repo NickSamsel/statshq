@@ -59,25 +59,24 @@ export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'ba
 
   // Get pitch color based on outcome
   const getPitchColor = (pitch) => {
+    const description = pitch.pitch_result_description || '';
+    
     if (viewType === 'batting') {
       // For batters - looking for good outcomes
-      const result = pitch.pitch_result || '';
-      const category = pitch.pitch_result_category || '';
-      if (result.includes('home_run') || result.includes('Home Run')) return '#FFD700';
-      if (result.includes('double') || result.includes('triple')) return '#00f2ff';
-      if (result.includes('single')) return '#00ff88';
-      if (result.includes('hit')) return '#00ff88';
-      if (category === 'Ball' || result.includes('Ball')) return '#888';
-      return '#ff0055'; // Strikes / outs
+      if (description === 'In play, run(s)') return '#FFD700'; // Home runs, RBIs (gold)
+      if (description === 'In play, no out') return '#00f2ff'; // Hits (cyan)
+      if (description.includes('Foul')) return '#00ff88'; // Contact (green)
+      if (description.includes('Ball') || description === 'Hit By Pitch') return '#888'; // Neutral (gray)
+      if (description.includes('Strike') || description === 'In play, out(s)') return '#ff0055'; // Bad (red)
+      return '#888';
     } else {
       // For pitchers - looking for outs/strikes
-      const category = pitch.pitch_result_category || '';
-      const description = pitch.pitch_result_description || '';
-      if (description.includes('Strikeout')) return '#FFD700';
-      if (category === 'Strike' || description.includes('Strike')) return '#00f2ff';
-      if (description.includes('Swinging') || description.includes('Foul')) return '#00ff88';
-      if (category === 'Ball') return '#ff0055';
-      if (category === 'In Play') return '#888';
+      if (description === 'Swinging Strike' || description.includes('Swinging Strike')) return '#FFD700'; // Whiffs (gold)
+      if (description === 'Called Strike') return '#00f2ff'; // Called strikes (cyan)
+      if (description.includes('Foul')) return '#00ff88'; // Foul balls (green)
+      if (description.includes('Ball')) return '#ff0055'; // Bad (red)
+      if (description === 'In play, out(s)') return '#00ff88'; // Good (green)
+      if (description.includes('In play')) return '#888'; // Neutral (gray)
       return '#888';
     }
   };
@@ -246,19 +245,19 @@ export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'ba
       }}>
         {viewType === 'batting' ? (
           <>
-            <LegendItem color="#FFD700" label="Home Run" />
-            <LegendItem color="#00f2ff" label="Extra Base Hit" />
-            <LegendItem color="#00ff88" label="Single" />
-            <LegendItem color="#ff0055" label="Strike" />
+            <LegendItem color="#FFD700" label="Run(s) Scored" />
+            <LegendItem color="#00f2ff" label="Hit (No Out)" />
+            <LegendItem color="#00ff88" label="Foul" />
             <LegendItem color="#888" label="Ball" />
+            <LegendItem color="#ff0055" label="Strike/Out" />
           </>
         ) : (
           <>
-            <LegendItem color="#FFD700" label="Strikeout" />
+            <LegendItem color="#FFD700" label="Swinging Strike" />
             <LegendItem color="#00f2ff" label="Called Strike" />
-            <LegendItem color="#00ff88" label="Swinging Strike/Foul" />
+            <LegendItem color="#00ff88" label="Foul/Out" />
+            <LegendItem color="#888" label="In Play (Hit)" />
             <LegendItem color="#ff0055" label="Ball" />
-            <LegendItem color="#888" label="In Play" />
           </>
         )}
       </div>
@@ -278,22 +277,23 @@ export default function PitchHeatmap({ pitches, handedness = 'R', viewType = 'ba
           pointerEvents: 'none',
           zIndex: 1000,
           boxShadow: '0 8px 32px rgba(0, 242, 255, 0.3)',
-          minWidth: '200px'
+          minWidth: '220px'
         }}>
           <div style={{ marginBottom: '8px', color: '#00f2ff', fontWeight: '600' }}>
-            {hoveredPitch.pitch_type || 'Unknown'} - {hoveredPitch.release_speed?.toFixed(1) || 'N/A'} mph
+            {hoveredPitch.pitch_type_description || hoveredPitch.pitch_type || 'Unknown'}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.75rem', marginBottom: '8px' }}>
+            <TooltipRow label="Velocity" value={`${hoveredPitch.release_speed?.toFixed(1) || 'N/A'} mph`} />
             <TooltipRow label="Spin Rate" value={hoveredPitch.release_spin_rate ? `${hoveredPitch.release_spin_rate} rpm` : 'N/A'} />
             <TooltipRow label="Zone" value={hoveredPitch.zone || 'N/A'} />
-            <TooltipRow label="Count" value={`${hoveredPitch.balls || 0}-${hoveredPitch.strikes || 0}`} />
             <TooltipRow label="In Zone" value={hoveredPitch.in_strike_zone ? 'Yes' : 'No'} />
           </div>
-          {hoveredPitch.pitch_result && (
-            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #333', fontSize: '0.75rem', color: '#888' }}>
-              Result: <span style={{ color: '#fff' }}>{hoveredPitch.pitch_result}</span>
+          <div style={{ paddingTop: '8px', borderTop: '1px solid #333' }}>
+            <div style={{ fontSize: '0.7rem', color: '#888', marginBottom: '4px' }}>Count: {hoveredPitch.balls || 0}-{hoveredPitch.strikes || 0}</div>
+            <div style={{ fontSize: '0.75rem', color: '#fff', fontWeight: '600' }}>
+              {hoveredPitch.pitch_result_description || hoveredPitch.pitch_result || 'N/A'}
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

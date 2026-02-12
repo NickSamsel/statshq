@@ -179,48 +179,34 @@ app.get('/api/mlb/players/search', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Player Info - detailed player information
+// Player Info - detailed player information with career stats
 app.get('/api/mlb/players/:playerId/info', async (req, res) => {
   try {
     const { playerId } = req.params;
-    // Get basic player info
+    // Join fct_mlb__players with dim_mlb__players to get complete player data
     const query = `
-      SELECT *
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\`
-      WHERE player_id = '${playerId}'
+      SELECT 
+        d.player_id,
+        d.full_name,
+        d.primary_number,
+        d.primary_position_abbr,
+        d.birth_date,
+        d.height,
+        d.weight,
+        d.mlb_debut_date,
+        d.bat_side_code,
+        d.pitch_hand_code,
+        -- All career stats from fct_mlb__players
+        f.*
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` d
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__players\` f
+        ON d.player_id = f.player_id
+      WHERE d.player_id = '${playerId}'
       LIMIT 1`;
     const data = await runQuery(query);
     
     if (data && data[0]) {
-      const player = data[0];
-      // Calculate age from birth_date if available
-      let age = null;
-      if (player.birth_date) {
-        const birthDate = player.birth_date.value || player.birth_date;
-        const birthYear = new Date(birthDate).getFullYear();
-        age = new Date().getFullYear() - birthYear;
-      }
-      
-      // Handle debut date (exact field: mlb_debut_date)
-      let mlbDebut = null;
-      if (player.mlb_debut_date) {
-        mlbDebut = player.mlb_debut_date.value || player.mlb_debut_date;
-      }
-      
-      // Standardize field names
-      const result = {
-        player_id: player.player_id,
-        player_name: player.full_name,
-        primary_number: player.primary_number,
-        primary_position: player.primary_position_abbr,
-        age: age,
-        height: player.height,
-        weight: player.weight,
-        mlb_debut: mlbDebut,
-        bat_side: player.bat_side_code,
-        pitch_hand: player.pitch_hand_code
-      };
-      res.json(result);
+      res.json(data[0]);
     } else {
       res.json(null);
     }
