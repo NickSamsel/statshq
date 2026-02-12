@@ -180,27 +180,6 @@ function MLBStats() {
       loadData()
     }
   }, [activeTab])
-          break
-        case 'games':
-          if (games.length === 0) {
-            const data = await fetchMLBRecentGames({ limit: 25 })
-            setGames(data)
-          }
-          break
-        case 'statcast':
-          if (statcast.length === 0) {
-            const data = await fetchMLBStatcastExitVelocity({ limit: 50 })
-            setStatcast(data)
-          }
-          break
-      }
-    } catch (err) {
-      setError(err.message)
-      console.error('Error loading MLB data:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const renderTeamsView = () => (
     <div>
@@ -210,7 +189,7 @@ function MLBStats() {
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={teams.slice(0, 15)}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="abbreviation" />
+              <XAxis dataKey="team_abbr" />
               <YAxis />
               <Tooltip />
               <Legend />
