@@ -8,8 +8,14 @@ import React from 'react';
  * - Career information (Debut, Years in MLB)
  * - Handedness (Bats/Throws)
  */
-export default function PlayerInfoCard({ player }) {
+export default function PlayerInfoCard({ player, onTeamClick }) {
   if (!player) return null;
+
+  const displayName = player.full_name || player.player_name || 'Unknown Player';
+
+  const teamName = player.team_name || player.current_team_name || player.mlb_team_name || null;
+  const teamAbbr = player.team_abbr || player.team_abbrev || player.team_abbreviation || player.current_team_abbr || null;
+  const hasTeam = Boolean(teamName || teamAbbr);
 
   return (
     <div style={{
@@ -27,7 +33,7 @@ export default function PlayerInfoCard({ player }) {
           color: '#fff',
           fontWeight: '700'
         }}>
-          {player.full_name}
+          {displayName}
         </h1>
         <div style={{
           display: 'flex',
@@ -69,6 +75,27 @@ export default function PlayerInfoCard({ player }) {
             }}>
               Two-Way Player
             </span>
+          )}
+
+          {hasTeam && (
+            <button
+              type="button"
+              onClick={onTeamClick}
+              disabled={!onTeamClick}
+              title={onTeamClick ? 'View team stats' : undefined}
+              style={{
+                padding: '4px 12px',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: `1px solid ${onTeamClick ? '#00f2ff' : '#333'}`,
+                borderRadius: '20px',
+                fontSize: '0.875rem',
+                color: onTeamClick ? '#00f2ff' : '#aaa',
+                fontWeight: '600',
+                cursor: onTeamClick ? 'pointer' : 'default'
+              }}
+            >
+              {teamAbbr || teamName}
+            </button>
           )}
         </div>
       </div>

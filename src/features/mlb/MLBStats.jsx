@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PlayerExplorer from './components/PlayerExplorer';
 import TeamExplorer from './components/TeamExplorer';
 
@@ -8,7 +8,26 @@ import TeamExplorer from './components/TeamExplorer';
  * Allows user to choose between exploring players or teams
  */
 function MLBStats() {
-  const [activeTab, setActiveTab] = useState('player'); // 'player' or 'team'
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('mlbActiveTab') || 'player';
+  }); // 'player' or 'team'
+
+  const [teamPrefill, setTeamPrefill] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem('mlbActiveTab', activeTab);
+  }, [activeTab]);
+
+  const handleNavigateToTeam = ({ teamId, teamName, teamAbbr, season }) => {
+    setTeamPrefill({
+      teamId: teamId || null,
+      teamName: teamName || null,
+      teamAbbr: teamAbbr || null,
+      season: season || null,
+      _ts: Date.now()
+    });
+    setActiveTab('team');
+  };
 
   return (
     <div className="mlb-container" style={{ 
@@ -20,9 +39,9 @@ function MLBStats() {
       <div style={{
         background: '#0a0a0a',
         borderBottom: '1px solid #222',
-        padding: '0 40px',
+        padding: '0 clamp(16px, 3vw, 40px)',
         position: 'sticky',
-        top: 0,
+        top: 'var(--app-nav-height)',
         zIndex: 50
       }}>
         <div style={{
@@ -30,7 +49,7 @@ function MLBStats() {
           margin: '0 auto',
           display: 'flex',
           alignItems: 'center',
-          gap: '40px'
+          gap: 'clamp(16px, 3vw, 40px)'
         }}>
           {/* Logo/Title */}
           <div style={{
@@ -65,8 +84,12 @@ function MLBStats() {
 
       {/* Content Area */}
       <div>
-        {activeTab === 'player' && <PlayerExplorer />}
-        {activeTab === 'team' && <TeamExplorer />}
+        <div style={{ display: activeTab === 'player' ? 'block' : 'none' }}>
+          <PlayerExplorer onTeamNavigate={handleNavigateToTeam} />
+        </div>
+        <div style={{ display: activeTab === 'team' ? 'block' : 'none' }}>
+          <TeamExplorer prefillTeam={teamPrefill} />
+        </div>
       </div>
     </div>
   );

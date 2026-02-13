@@ -9,6 +9,7 @@ import {
   fetchMLBPlayerBattingSeasons,
   fetchMLBPlayerPitchingSeasons,
   fetchMLBStatcastData,
+  fetchMLBPitchZoneOutcomes,
   fetchMLBBattedBallStats
 } from '../../../services/bigqueryService';
 
@@ -21,13 +22,14 @@ import {
  * - Season-by-season stats table
  * - 2D pitch heatmap with season filter
  */
-export default function PlayerExplorer() {
+export default function PlayerExplorer({ onTeamNavigate }) {
   const [players, setPlayers] = useState([]);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [playerInfo, setPlayerInfo] = useState(null);
   const [battingSeasons, setBattingSeasons] = useState([]);
   const [pitchingSeasons, setPitchingSeasons] = useState([]);
   const [pitchData, setPitchData] = useState([]);
+  const [pitchZoneOutcomes, setPitchZoneOutcomes] = useState([]);
   const [battedBallStats, setBattedBallStats] = useState(null);
   const [selectedSeason, setSelectedSeason] = useState('2024');
   const [viewType, setViewType] = useState('batting'); // 'batting' or 'pitching'
@@ -94,8 +96,8 @@ export default function PlayerExplorer() {
       const stats = info.is_batter ? battingStats : pitchingStats;
       if (stats.length > 0) {
         const recentSeason = stats[0].season;
-        setSelectedSeason(recentSeason);
-        await loadPitchData(player.player_id, recentSeason, defaultViewType);
+        setSelectedSeason(String(recentSeason));
+        await loadPitchData(player.player_id, String(recentSeason), defaultViewType);
       }
     } catch (error) {
       console.error('Error loading player data:', error);
@@ -106,11 +108,13 @@ export default function PlayerExplorer() {
 
   // Load pitch/statcast data for selected season
   const loadPitchData = async (playerId, season, type) => {
-    const [pitchData, battedBallData] = await Promise.all([
+    const [pitchData, zoneOutcomes, battedBallData] = await Promise.all([
       fetchMLBStatcastData({ playerId, season, viewType: type }),
+      fetchMLBPitchZoneOutcomes({ playerId, season, viewType: type }),
       fetchMLBBattedBallStats({ playerId, season, viewType: type })
     ]);
     setPitchData(pitchData);
+    setPitchZoneOutcomes(zoneOutcomes);
     setBattedBallStats(battedBallData);
   };
 
@@ -137,6 +141,26 @@ export default function PlayerExplorer() {
   // Get unique seasons from stats
   const stats = viewType === 'batting' ? battingSeasons : pitchingSeasons;
   const availableSeasons = stats.map(s => s.season).filter((v, i, a) => a.indexOf(v) === i);
+  const seasonOptions = ['career', ...availableSeasons.map((s) => String(s))];
+
+  const handleTeamClick = () => {
+    if (!onTeamNavigate) return;
+
+    const teamName = playerInfo?.team_name || selectedPlayer?.team_name || null;
+    const teamAbbr = playerInfo?.team_abbr || playerInfo?.team_abbrev || playerInfo?.team_abbreviation || null;
+    const teamId = playerInfo?.team_id || playerInfo?.current_team_id || null;
+
+    const seasonForTeam = selectedSeason === 'career'
+      ? String(availableSeasons?.[0] ?? '')
+      : String(selectedSeason);
+
+    onTeamNavigate({
+      teamId: teamId ? String(teamId) : null,
+      teamName,
+      teamAbbr,
+      season: seasonForTeam
+    });
+  };
 
   // Check if player is two-way using API flags
   const isTwoWay = playerInfo && playerInfo.is_two_way_player;
@@ -146,7 +170,7 @@ export default function PlayerExplorer() {
       minHeight: '100vh',
       background: '#050505',
       color: '#fff',
-      padding: '40px'
+      padding: 'clamp(16px, 3vw, 40px)'
     }}>
       <style>
         {`
@@ -302,7 +326,7 @@ export default function PlayerExplorer() {
         <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
           {/* Player Info Card */}
           <div style={{ marginBottom: '40px' }}>
-            <PlayerInfoCard player={playerInfo} />
+            <PlayerInfoCard player={playerInfo} onTeamClick={handleTeamClick} />
           </div>
 
           {/* View Type Toggle (for two-way players viewing pitch heatmap) */}
@@ -432,9 +456,9 @@ export default function PlayerExplorer() {
                       outline: 'none'
                     }}
                   >
-                    {availableSeasons.map((season) => (
+                    {seasonOptions.map((season) => (
                       <option key={season} value={season}>
-                        {season} Season
+                        {season === 'career' ? 'Career Avg (All Seasons)' : `${season} Season`}
                       </option>
                     ))}
                   </select>
@@ -443,6 +467,7 @@ export default function PlayerExplorer() {
 
               <PitchHeatmap 
                 pitches={pitchData} 
+                zoneOutcomes={pitchZoneOutcomes}
                 handedness={playerInfo.bat_side_code || playerInfo.pitch_hand_code}
                 viewType={viewType}
                 battedBallStats={battedBallStats}

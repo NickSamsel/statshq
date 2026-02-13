@@ -38,6 +38,15 @@ export const fetchMLBStatcastData = async (params = {}) => {
 };
 
 /**
+ * Fetches aggregated pitch outcomes by zone from fct_mlb__pitch_zone_outcomes
+ * Useful for heatmaps (much smaller/faster than raw pitch locations)
+ */
+export const fetchMLBPitchZoneOutcomes = async (params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/statcast/pitch-zone-outcomes`, { params });
+  return response.data;
+};
+
+/**
  * Fetches aggregated batted ball statistics from fct_mlb__statcast_batted_balls
  * Powers the batted ball stats overlay
  */
@@ -69,6 +78,36 @@ export const fetchMLBTeamsList = async (params = {}) => {
 
 export const fetchMLBTeams = async (params = {}) => {
   const response = await axios.get(`${API_BASE_URL}/mlb/teams`, { params });
+  return response.data;
+};
+
+export const fetchMLBTeamSeasons = async () => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/seasons`);
+  return response.data;
+};
+
+export const fetchMLBTeamStandings = async (params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/standings`, { params });
+  return response.data;
+};
+
+export const fetchMLBTeamStandingsHistory = async (teamId, params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/${teamId}/standings-history`, { params });
+  return response.data;
+};
+
+export const fetchMLBTeamSeasonStats = async (teamId, params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/${teamId}/season-stats`, { params });
+  return response.data;
+};
+
+export const fetchMLBTeamGames = async (teamId, params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/${teamId}/games`, { params });
+  return response.data;
+};
+
+export const fetchMLBTeamStatcastMetrics = async (teamId, params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/${teamId}/statcast-metrics`, { params });
   return response.data;
 };
 

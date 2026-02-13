@@ -23,6 +23,14 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
 
   // Determine which columns to show based on player type
   const isBatter = playerType === 'batter';
+
+  const rankTitle = (rankValue) => {
+    const n = Number(rankValue);
+    if (!Number.isFinite(n) || n <= 0) return 'MLB rank (season): —';
+    return `MLB rank (season): #${n}`;
+  };
+
+  const rankCellStyle = { ...cellStyle, cursor: 'help' };
   
   return (
     <div style={{
@@ -100,6 +108,7 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
                   <th style={headerStyle}>Str%</th>
                   <th style={headerStyle}>Velo</th>
                   <th style={headerStyle}>QS</th>
+                  <th style={headerStyle}>WAR</th>
                 </>
               )}
             </tr>
@@ -132,52 +141,55 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
                   <>
                     <td style={cellStyle}>{season.plate_appearances || 0}</td>
                     <td style={cellStyle}>{season.at_bats || 0}</td>
-                    <td style={cellStyle}>{season.runs || 0}</td>
-                    <td style={cellStyle}>{season.hits || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.runs_rank)}>{season.runs || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.hits_rank)}>{season.hits || 0}</td>
                     <td style={cellStyle}>{season.doubles || 0}</td>
                     <td style={cellStyle}>{season.triples || 0}</td>
-                    <td style={cellStyle}>{season.home_runs || 0}</td>
-                    <td style={cellStyle}>{season.rbi || 0}</td>
-                    <td style={cellStyle}>{season.stolen_bases || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.home_runs_rank)}>{season.home_runs || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.rbi_rank)}>{season.rbi || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.stolen_bases_rank)}>{season.stolen_bases || 0}</td>
                     <td style={cellStyle}>{season.caught_stealing || 0}</td>
-                    <td style={cellStyle}>{season.walks || 0}</td>
-                    <td style={cellStyle}>{season.strikeouts || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.walks_rank)}>{season.walks || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.strikeouts_rank)}>{season.strikeouts || 0}</td>
                     <td style={cellStyle}>{season.hit_by_pitch || 0}</td>
                     <td style={cellStyle}>{season.sacrifice_flies || 0}</td>
-                    <td style={cellStyle}>{season.avg?.toFixed(3) || '.000'}</td>
-                    <td style={cellStyle}>{season.obp?.toFixed(3) || '.000'}</td>
-                    <td style={cellStyle}>{season.slg?.toFixed(3) || '.000'}</td>
-                    <td style={{...cellStyle, color: '#00f2ff', fontWeight: '600'}}>
+                    <td style={rankCellStyle} title={rankTitle(season.avg_rank)}>{season.avg?.toFixed(3) || '.000'}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.obp_rank)}>{season.obp?.toFixed(3) || '.000'}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.slg_rank)}>{season.slg?.toFixed(3) || '.000'}</td>
+                    <td style={{...rankCellStyle, color: '#00f2ff', fontWeight: '600'}} title={rankTitle(season.ops_rank)}>
                       {season.ops?.toFixed(3) || '.000'}
                     </td>
-                    <td style={{...cellStyle, color: '#FFD700', fontWeight: '600'}}>
+                    <td style={{...rankCellStyle, color: '#FFD700', fontWeight: '600'}} title={rankTitle(season.war_rank)}>
                       {season.war?.toFixed(1) || '0.0'}
                     </td>
                   </>
                 ) : (
                   <>
-                    <td style={{...cellStyle, color: '#00f2ff', fontWeight: '600'}}>
+                    <td style={{...rankCellStyle, color: '#00f2ff', fontWeight: '600'}} title={rankTitle(season.era_rank)}>
                       {season.era?.toFixed(2) || '0.00'}
                     </td>
-                    <td style={cellStyle}>{season.innings_pitched?.toFixed(1) || '0.0'}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.innings_pitched_rank)}>{season.innings_pitched?.toFixed(1) || '0.0'}</td>
                     <td style={cellStyle}>{season.hits || 0}</td>
                     <td style={cellStyle}>{season.runs || 0}</td>
-                    <td style={cellStyle}>{season.walks || 0}</td>
-                    <td style={cellStyle}>{season.strikeouts || 0}</td>
-                    <td style={cellStyle}>{season.whip?.toFixed(2) || '0.00'}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.walks_rank)}>{season.walks || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.strikeouts_rank)}>{season.strikeouts || 0}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.whip_rank)}>{season.whip?.toFixed(2) || '0.00'}</td>
                     <td style={cellStyle}>
                       {season.innings_pitched > 0 
                         ? ((season.strikeouts / season.innings_pitched) * 9).toFixed(1) 
                         : '0.0'}
                     </td>
-                    <td style={cellStyle}>
+                    <td style={rankCellStyle} title={rankTitle(season.k_percentage_rank)}>
                       {season.k_percentage ? season.k_percentage.toFixed(1) + '%' : '0.0%'}
                     </td>
-                    <td style={cellStyle}>
+                    <td style={rankCellStyle} title={rankTitle(season.strike_percentage_rank)}>
                       {season.strike_percentage ? season.strike_percentage.toFixed(1) + '%' : '0.0%'}
                     </td>
-                    <td style={cellStyle}>{season.avg_pitch_velocity?.toFixed(1) || '0.0'}</td>
+                    <td style={rankCellStyle} title={rankTitle(season.avg_pitch_velocity_rank)}>{season.avg_pitch_velocity?.toFixed(1) || '0.0'}</td>
                     <td style={cellStyle}>{season.quality_starts || 0}</td>
+                    <td style={{...rankCellStyle, color: '#FFD700', fontWeight: '600'}} title={rankTitle(season.war_rank)}>
+                      {season.war?.toFixed(1) || '0.0'}
+                    </td>
                   </>
                 )}
               </tr>

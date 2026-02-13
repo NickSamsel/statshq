@@ -34,12 +34,21 @@ function NHLStats() {
       {data.length > 0 ? (
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="value" stroke="#8884d8" />
+            <CartesianGrid stroke="#222" strokeDasharray="3 3" />
+            <XAxis dataKey="name" tick={{ fill: 'var(--muted)' }} axisLine={{ stroke: '#333' }} tickLine={{ stroke: '#333' }} />
+            <YAxis tick={{ fill: 'var(--muted)' }} axisLine={{ stroke: '#333' }} tickLine={{ stroke: '#333' }} />
+            <Tooltip
+              contentStyle={{
+                background: 'rgba(0, 0, 0, 0.95)',
+                border: '1px solid var(--accent-cyan)',
+                borderRadius: '10px',
+                color: 'var(--text)'
+              }}
+              labelStyle={{ color: 'var(--muted)' }}
+              itemStyle={{ color: 'var(--text)' }}
+            />
+            <Legend wrapperStyle={{ color: 'var(--muted)' }} />
+            <Line type="monotone" dataKey="value" stroke="var(--accent-cyan)" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       ) : (
