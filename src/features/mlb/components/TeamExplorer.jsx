@@ -51,6 +51,8 @@ function joinRankLines(lines) {
 }
 
 export default function TeamExplorer({ prefillTeam }) {
+  const [hoverTooltip, setHoverTooltip] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -371,6 +373,7 @@ export default function TeamExplorer({ prefillTeam }) {
               `Wins rank: ${formatRank(seasonStats.wins_rank) || '—'}`,
               `Win% rank: ${formatRank(seasonStats.win_pct_rank) || '—'}`
             ]) : undefined}
+            onTooltip={setHoverTooltip}
           />
           <StatCard
             title="Runs"
@@ -381,6 +384,7 @@ export default function TeamExplorer({ prefillTeam }) {
               `Runs allowed rank: ${formatRank(seasonStats.runs_allowed_rank) || '—'}`,
               `Run diff rank: ${formatRank(seasonStats.run_diff_rank) || '—'}`
             ]) : undefined}
+            onTooltip={setHoverTooltip}
           />
           <StatCard
             title="Batting"
@@ -392,6 +396,7 @@ export default function TeamExplorer({ prefillTeam }) {
               `OBP rank: ${formatRank(seasonStats.obp_rank) || '—'}`,
               `SLG rank: ${formatRank(seasonStats.slg_rank) || '—'}`
             ]) : undefined}
+            onTooltip={setHoverTooltip}
           />
           <StatCard
             title="Pitching"
@@ -403,8 +408,31 @@ export default function TeamExplorer({ prefillTeam }) {
               `K/9 rank: ${formatRank(seasonStats.k9_rank) || '—'}`,
               `BB/9 rank: ${formatRank(seasonStats.bb9_rank) || '—'}`
             ]) : undefined}
+            onTooltip={setHoverTooltip}
           />
         </div>
+
+        {hoverTooltip?.text ? (
+          <div style={{
+            position: 'fixed',
+            left: hoverTooltip.x,
+            top: hoverTooltip.y,
+            transform: 'translate(12px, 12px)',
+            zIndex: 9999,
+            background: '#0a0a0a',
+            border: '1px solid #333',
+            borderRadius: '10px',
+            padding: '8px 10px',
+            color: '#ddd',
+            fontSize: '0.75rem',
+            maxWidth: '300px',
+            pointerEvents: 'none',
+            whiteSpace: 'pre-wrap',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+          }} role="tooltip" aria-hidden>
+            {hoverTooltip.text}
+          </div>
+        ) : null}
 
         {/* Charts */}
         <div style={{
@@ -599,14 +627,22 @@ function Panel({ title, children }) {
   );
 }
 
-function StatCard({ title, value, sub, tooltip }) {
+function StatCard({ title, value, sub, tooltip, onTooltip }) {
+  const bind = (text) => {
+    if (!onTooltip || !text) return {};
+    return {
+      onMouseEnter: (e) => onTooltip({ text, x: e.clientX, y: e.clientY }),
+      onMouseMove: (e) => onTooltip((prev) => prev ? { ...prev, x: e.clientX, y: e.clientY } : { text, x: e.clientX, y: e.clientY }),
+      onMouseLeave: () => onTooltip(null)
+    };
+  };
+
   return (
-    <div title={tooltip} style={{
+    <div {...bind(tooltip)} title={tooltip} style={{
       background: 'linear-gradient(135deg, #0a0a0a 0%, #111 100%)',
       border: '1px solid #222',
       borderRadius: '16px',
-      padding: '16px',
-      cursor: tooltip ? 'help' : 'default'
+      padding: '16px'
     }}>
       <div style={{ color: '#888', fontSize: '0.75rem', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
         {title}

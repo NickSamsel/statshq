@@ -607,86 +607,64 @@ app.get('/api/mlb/players/:playerId/info', async (req, res) => {
 app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
   try {
     const { playerId } = req.params;
-    let battingWarCol = null;
-    try {
-      battingWarCol = await getFirstExistingColumn('fct_mlb__player_season_stats', [
-        'batting_war',
-        'war_batting',
-        'position_player_war',
-        'offensive_war',
-        'war'
-      ]);
-    } catch {
-      battingWarCol = null;
-    }
-
-    const battingRankMap = {
-      avg_rank: ['avg_rank', 'batting_avg_rank', 'season_batting_avg_rank'],
-      obp_rank: ['obp_rank', 'season_obp_rank'],
-      slg_rank: ['slg_rank', 'season_slg_rank'],
-      ops_rank: ['ops_rank', 'season_ops_rank'],
-      home_runs_rank: ['home_runs_rank', 'hr_rank', 'season_home_runs_rank'],
-      rbi_rank: ['rbi_rank', 'season_rbi_rank'],
-      runs_rank: ['runs_rank', 'season_runs_rank'],
-      hits_rank: ['hits_rank', 'season_hits_rank'],
-      walks_rank: ['walks_rank', 'bb_rank', 'season_walks_rank'],
-      strikeouts_rank: ['strikeouts_rank', 'so_rank', 'season_strikeouts_rank'],
-      stolen_bases_rank: ['stolen_bases_rank', 'sb_rank', 'season_stolen_bases_rank'],
-      war_rank: ['war_rank', 'batting_war_rank', 'position_player_war_rank']
-    };
-
-    let battingRankSelect = '';
-    try {
-      const rankEntries = await Promise.all(
-        Object.entries(battingRankMap).map(async ([alias, candidates]) => {
-          const col = await getFirstExistingColumn('fct_mlb__player_season_stats', candidates);
-          return col ? { alias, col } : null;
-        })
-      );
-
-      battingRankSelect = rankEntries
-        .filter(Boolean)
-        .map(({ alias, col }) => `, MAX(SAFE_CAST(s.${col} AS INT64)) as ${alias}`)
-        .join('\n');
-    } catch {
-      battingRankSelect = '';
-    }
-
-    const warSelect = battingWarCol
-      ? `MAX(SAFE_CAST(s.${battingWarCol} AS FLOAT64)) as war`
-      : `NULL as war`;
-
-    // Aggregate game-level data to season totals using BigQuery
+    // Pivot to season-level player table (schema provided by user). We compute percentiles
+    // per season with window functions so tooltips always have values.
     const query = `
-      SELECT 
-        b.season as season,
-        MAX(team_name) as team_name,
-        COUNT(DISTINCT game_id) as games,
-        SUM(plate_appearances) as plate_appearances,
-        SUM(at_bats) as at_bats,
-        SUM(runs) as runs,
-        SUM(hits) as hits,
-        SUM(doubles) as doubles,
-        SUM(triples) as triples,
-        SUM(home_runs) as home_runs,
-        SUM(rbi) as rbi,
-        SUM(stolen_bases) as stolen_bases,
-        SUM(walks) as walks,
-        SUM(strikeouts) as strikeouts,
-        -- Calculate rate stats from totals
-        ROUND(SAFE_DIVIDE(SUM(hits), SUM(at_bats)), 3) as avg,
-        ROUND(SAFE_DIVIDE(SUM(hits) + SUM(walks), SUM(at_bats) + SUM(walks)), 3) as obp,
-        ROUND(SAFE_DIVIDE(SUM(total_bases), SUM(at_bats)), 3) as slg,
-        ROUND(SAFE_DIVIDE(SUM(hits) + SUM(walks), SUM(at_bats) + SUM(walks)) + SAFE_DIVIDE(SUM(total_bases), SUM(at_bats)), 3) as ops,
-        ${warSelect}
-        ${battingRankSelect}
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batting_stats\` b
-      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` s
-        ON s.player_id = b.player_id AND s.season = b.season
-      WHERE b.player_id = '${playerId}'
-      GROUP BY b.season
+      WITH base AS (
+        SELECT
+          s.player_id,
+          s.team_id,
+          s.season,
+          SAFE_CAST(s.games_played AS INT64) AS games,
+          SAFE_CAST(s.plate_appearances AS INT64) AS plate_appearances,
+          SAFE_CAST(s.at_bats AS INT64) AS at_bats,
+          SAFE_CAST(s.runs AS INT64) AS runs,
+          SAFE_CAST(s.hits AS INT64) AS hits,
+          SAFE_CAST(s.doubles AS INT64) AS doubles,
+          SAFE_CAST(s.triples AS INT64) AS triples,
+          SAFE_CAST(s.home_runs_traditional AS INT64) AS home_runs,
+          SAFE_CAST(s.rbi AS INT64) AS rbi,
+          SAFE_CAST(s.stolen_bases AS INT64) AS stolen_bases,
+          SAFE_CAST(s.walks AS INT64) AS walks,
+          SAFE_CAST(s.strikeouts AS INT64) AS strikeouts,
+          SAFE_CAST(s.batting_average AS FLOAT64) AS avg,
+          SAFE_CAST(s.on_base_percentage AS FLOAT64) AS obp,
+          SAFE_CAST(s.slugging_percentage AS FLOAT64) AS slg,
+          SAFE_CAST(s.ops AS FLOAT64) AS ops,
+          SAFE_CAST(s.simplified_offensive_war AS FLOAT64) AS war
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` s
+      ),
+      with_team AS (
+        SELECT
+          b.*,
+          ts.team_name AS team_name
+        FROM base b
+        LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` ts
+          ON ts.team_id = b.team_id AND ts.season = b.season
+      ),
+      ranked AS (
+        SELECT
+          wt.*,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY runs), 100) AS runs_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY hits), 100) AS hits_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY home_runs), 100) AS home_runs_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY rbi), 100) AS rbi_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY stolen_bases), 100) AS stolen_bases_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY walks), 100) AS walks_percentile,
+          SAFE_MULTIPLY(1 - PERCENT_RANK() OVER (PARTITION BY season ORDER BY strikeouts), 100) AS strikeouts_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY avg), 100) AS avg_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY obp), 100) AS obp_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY slg), 100) AS slg_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY ops), 100) AS ops_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY war), 100) AS war_percentile
+        FROM with_team wt
+      )
+      SELECT *
+      FROM ranked
+      WHERE player_id = @player_id
       ORDER BY season DESC`;
-    const data = await runQuery(query);
+
+    const data = await runQuery(query, { player_id: String(playerId) });
     
     // Format response with proper types (caught_stealing, hit_by_pitch, sacrifice_flies, war not in schema)
     const formatted = data.map(row => ({
@@ -711,19 +689,19 @@ app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
       obp: row.obp || 0,
       slg: row.slg || 0,
       ops: row.ops || 0,
-      war: row.war === null || row.war === undefined ? null : Number(row.war)
-      , avg_rank: row.avg_rank ?? null
-      , obp_rank: row.obp_rank ?? null
-      , slg_rank: row.slg_rank ?? null
-      , ops_rank: row.ops_rank ?? null
-      , home_runs_rank: row.home_runs_rank ?? null
-      , rbi_rank: row.rbi_rank ?? null
-      , runs_rank: row.runs_rank ?? null
-      , hits_rank: row.hits_rank ?? null
-      , walks_rank: row.walks_rank ?? null
-      , strikeouts_rank: row.strikeouts_rank ?? null
-      , stolen_bases_rank: row.stolen_bases_rank ?? null
-      , war_rank: row.war_rank ?? null
+      war: row.war === null || row.war === undefined ? null : Number(row.war),
+      runs_percentile: row.runs_percentile ?? null,
+      hits_percentile: row.hits_percentile ?? null,
+      home_runs_percentile: row.home_runs_percentile ?? null,
+      rbi_percentile: row.rbi_percentile ?? null,
+      stolen_bases_percentile: row.stolen_bases_percentile ?? null,
+      walks_percentile: row.walks_percentile ?? null,
+      strikeouts_percentile: row.strikeouts_percentile ?? null,
+      avg_percentile: row.avg_percentile ?? null,
+      obp_percentile: row.obp_percentile ?? null,
+      slg_percentile: row.slg_percentile ?? null,
+      ops_percentile: row.ops_percentile ?? null,
+      war_percentile: row.war_percentile ?? null
     }));
     
     res.json(formatted);
@@ -734,94 +712,88 @@ app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
 app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => {
   try {
     const { playerId } = req.params;
-    let pitchingWarCol = null;
-    try {
-      pitchingWarCol = await getFirstExistingColumn('fct_mlb__player_season_stats', [
-        'pitching_war',
-        'war_pitching',
-        'pwar',
-        'war'
-      ]);
-    } catch {
-      pitchingWarCol = null;
-    }
-
-    const pitchingRankMap = {
-      era_rank: ['era_rank', 'season_era_rank'],
-      whip_rank: ['whip_rank', 'season_whip_rank'],
-      innings_pitched_rank: ['innings_pitched_rank', 'ip_rank', 'season_innings_pitched_rank'],
-      strikeouts_rank: ['strikeouts_rank', 'so_rank', 'season_strikeouts_rank'],
-      walks_rank: ['walks_rank', 'bb_rank', 'season_walks_rank'],
-      k_percentage_rank: ['k_percentage_rank', 'season_k_percentage_rank', 'k_pct_rank'],
-      strike_percentage_rank: ['strike_percentage_rank', 'season_strike_percentage_rank', 'strike_pct_rank'],
-      avg_pitch_velocity_rank: ['avg_pitch_velocity_rank', 'velocity_rank', 'season_avg_pitch_velocity_rank'],
-      war_rank: ['war_rank', 'pitching_war_rank', 'pwar_rank']
-    };
-
-    let pitchingRankSelect = '';
-    try {
-      const rankEntries = await Promise.all(
-        Object.entries(pitchingRankMap).map(async ([alias, candidates]) => {
-          const col = await getFirstExistingColumn('fct_mlb__player_season_stats', candidates);
-          return col ? { alias, col } : null;
-        })
-      );
-
-      pitchingRankSelect = rankEntries
-        .filter(Boolean)
-        .map(({ alias, col }) => `, MAX(SAFE_CAST(s.${col} AS INT64)) as ${alias}`)
-        .join('\n');
-    } catch {
-      pitchingRankSelect = '';
-    }
-
-    const warSelect = pitchingWarCol
-      ? `MAX(SAFE_CAST(s.${pitchingWarCol} AS FLOAT64)) as war`
-      : `NULL as war`;
-
-    // Aggregate game-level data to season totals using BigQuery
+    // Pivot to season-level pitching table (schema provided by user). Use stored percentiles
+    // when available and compute missing ones so tooltips always have values.
     const query = `
-      WITH pitch_counts AS (
-        -- Count occurrences of each pitch type per season
-        SELECT 
-          season,
-          statcast_primary_pitch,
-          COUNT(*) as pitch_freq,
-          ROW_NUMBER() OVER(PARTITION BY season ORDER BY COUNT(*) DESC) as rank
-        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_stats\`
-        WHERE player_id = '${playerId}'
-        GROUP BY season, statcast_primary_pitch
+      WITH base AS (
+        SELECT
+          p.player_id,
+          p.team_id,
+          p.season,
+          SAFE_CAST(p.games_pitched AS INT64) AS games,
+          SAFE_CAST(p.innings_pitched AS FLOAT64) AS innings_pitched,
+          SAFE_CAST(p.hits_allowed AS INT64) AS hits,
+          SAFE_CAST(p.runs_allowed AS INT64) AS runs,
+          SAFE_CAST(p.walks_allowed AS INT64) AS walks,
+          SAFE_CAST(p.strikeouts AS INT64) AS strikeouts,
+          SAFE_CAST(p.era AS FLOAT64) AS era,
+          SAFE_CAST(p.whip AS FLOAT64) AS whip,
+          SAFE_CAST(p.k_percentage AS FLOAT64) AS k_percentage,
+          SAFE_CAST(p.strike_pct AS FLOAT64) AS strike_percentage,
+          SAFE_CAST(p.avg_pitch_velocity AS FLOAT64) AS avg_pitch_velocity,
+          SAFE_CAST(p.max_pitch_velocity AS FLOAT64) AS max_pitch_velocity,
+          SAFE_CAST(p.quality_starts AS INT64) AS quality_starts,
+          SAFE_CAST(p.simplified_pitching_war AS FLOAT64) AS war,
+          SAFE_CAST(p.era_percentile AS FLOAT64) AS era_percentile,
+          SAFE_CAST(p.whip_percentile AS FLOAT64) AS whip_percentile,
+          SAFE_CAST(p.k_percentage_percentile AS FLOAT64) AS k_percentage_percentile,
+          SAFE_CAST(p.velocity_percentile AS FLOAT64) AS avg_pitch_velocity_percentile
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\` p
+      ),
+      with_team AS (
+        SELECT
+          b.*,
+          ts.team_name AS team_name
+        FROM base b
+        LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` ts
+          ON ts.team_id = b.team_id AND ts.season = b.season
+      ),
+      ranked AS (
+        SELECT
+          wt.*,
+          -- Prefer stored percentiles when present; otherwise compute (0-100).
+          COALESCE(wt.era_percentile, SAFE_MULTIPLY(1 - PERCENT_RANK() OVER (PARTITION BY season ORDER BY era), 100)) AS era_percentile_final,
+          COALESCE(wt.whip_percentile, SAFE_MULTIPLY(1 - PERCENT_RANK() OVER (PARTITION BY season ORDER BY whip), 100)) AS whip_percentile_final,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY innings_pitched), 100) AS innings_pitched_percentile,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY strikeouts), 100) AS strikeouts_percentile,
+          SAFE_MULTIPLY(1 - PERCENT_RANK() OVER (PARTITION BY season ORDER BY walks), 100) AS walks_percentile,
+          COALESCE(wt.k_percentage_percentile, SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY k_percentage), 100)) AS k_percentage_percentile_final,
+          COALESCE(wt.avg_pitch_velocity_percentile, SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY avg_pitch_velocity), 100)) AS avg_pitch_velocity_percentile_final,
+          SAFE_MULTIPLY(PERCENT_RANK() OVER (PARTITION BY season ORDER BY war), 100) AS war_percentile
+        FROM with_team wt
       )
-      SELECT 
-        base.season,
-        MAX(base.team_name) as team_name,
-        COUNT(DISTINCT base.game_id) as games,
-        SUM(CAST(base.innings_pitched_decimal AS FLOAT64)) as innings_pitched_decimal,
-        SUM(base.walks) as walks,
-        SUM(base.strikeouts) as strikeouts,
-        SUM(base.hits) as hits,
-        SUM(base.runs) as runs,
-        SAFE_DIVIDE(SUM(base.runs) * 9, SUM(CAST(base.innings_pitched_decimal AS FLOAT64))) as era, 
-        AVG(base.strike_percentage) as strike_percentage,
-        SAFE_DIVIDE(SUM(base.hits) + SUM(base.walks), SUM(CAST(base.innings_pitched_decimal AS FLOAT64))) as whip,
-        AVG(base.k_percentage) as k_percentage,
-        AVG(base.avg_pitch_velocity) as avg_pitch_velocity,
-        MAX(base.max_pitch_velocity) as max_pitch_velocity,
-        pc.statcast_primary_pitch,
-        COUNT(
-          CASE WHEN base.is_quality_start IS TRUE THEN 1 END
-        ) as quality_starts
-        , ${warSelect}
-        ${pitchingRankSelect}
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_stats\` AS base
-      LEFT JOIN pitch_counts pc 
-        ON base.season = pc.season AND pc.rank = 1
-      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` s
-        ON s.player_id = base.player_id AND s.season = base.season
-      WHERE base.player_id = '${playerId}'
-      GROUP BY base.season, pc.statcast_primary_pitch
-      ORDER BY base.season DESC`;
-    const data = await runQuery(query);
+      SELECT
+        player_id,
+        team_id,
+        team_name,
+        season,
+        games,
+        innings_pitched,
+        hits,
+        runs,
+        walks,
+        strikeouts,
+        era,
+        whip,
+        k_percentage,
+        strike_percentage,
+        avg_pitch_velocity,
+        max_pitch_velocity,
+        quality_starts,
+        war,
+        era_percentile_final AS era_percentile,
+        whip_percentile_final AS whip_percentile,
+        innings_pitched_percentile,
+        strikeouts_percentile,
+        walks_percentile,
+        k_percentage_percentile_final AS k_percentage_percentile,
+        avg_pitch_velocity_percentile_final AS avg_pitch_velocity_percentile,
+        war_percentile
+      FROM ranked
+      WHERE player_id = @player_id
+      ORDER BY season DESC`;
+
+    const data = await runQuery(query, { player_id: String(playerId) });
     
     // Format response with proper types (caught_stealing, hit_by_pitch, sacrifice_flies, war not in schema)
     const formatted = data.map(row => ({
@@ -841,16 +813,16 @@ app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => 
       max_pitch_velocity: row.max_pitch_velocity || 0,
       statcast_primary_pitch: row.statcast_primary_pitch || null,
       quality_starts: row.quality_starts || 0,
-      war: row.war === null || row.war === undefined ? null : Number(row.war)
-      , era_rank: row.era_rank ?? null
-      , whip_rank: row.whip_rank ?? null
-      , innings_pitched_rank: row.innings_pitched_rank ?? null
-      , strikeouts_rank: row.strikeouts_rank ?? null
-      , walks_rank: row.walks_rank ?? null
-      , k_percentage_rank: row.k_percentage_rank ?? null
-      , strike_percentage_rank: row.strike_percentage_rank ?? null
-      , avg_pitch_velocity_rank: row.avg_pitch_velocity_rank ?? null
-      , war_rank: row.war_rank ?? null
+      war: row.war === null || row.war === undefined ? null : Number(row.war),
+      era_percentile: row.era_percentile ?? null,
+      whip_percentile: row.whip_percentile ?? null,
+      innings_pitched_percentile: row.innings_pitched_percentile ?? null,
+      strikeouts_percentile: row.strikeouts_percentile ?? null,
+      walks_percentile: row.walks_percentile ?? null,
+      k_percentage_percentile: row.k_percentage_percentile ?? null,
+      strike_percentage_percentile: row.strike_percentage_percentile ?? null,
+      avg_pitch_velocity_percentile: row.avg_pitch_velocity_percentile ?? null,
+      war_percentile: row.war_percentile ?? null
     }));
     
     res.json(formatted);
