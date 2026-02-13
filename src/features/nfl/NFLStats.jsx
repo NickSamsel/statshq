@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { fetchNFLData } from '../services/bigqueryService'
+import { fetchNFLData } from '../../services/bigqueryService'
 
 function NFLStats() {
   const [data, setData] = useState([])
@@ -34,12 +34,21 @@ function NFLStats() {
       {data.length > 0 ? (
         <ResponsiveContainer width="100%" height={400}>
           <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="value" fill="#ffc658" />
+            <CartesianGrid stroke="#222" strokeDasharray="3 3" />
+            <XAxis dataKey="name" tick={{ fill: 'var(--muted)' }} axisLine={{ stroke: '#333' }} tickLine={{ stroke: '#333' }} />
+            <YAxis tick={{ fill: 'var(--muted)' }} axisLine={{ stroke: '#333' }} tickLine={{ stroke: '#333' }} />
+            <Tooltip
+              contentStyle={{
+                background: 'rgba(0, 0, 0, 0.95)',
+                border: '1px solid var(--accent-cyan)',
+                borderRadius: '10px',
+                color: 'var(--text)'
+              }}
+              labelStyle={{ color: 'var(--muted)' }}
+              itemStyle={{ color: 'var(--text)' }}
+            />
+            <Legend wrapperStyle={{ color: 'var(--muted)' }} />
+            <Bar dataKey="value" fill="var(--accent-cyan)" />
           </BarChart>
         </ResponsiveContainer>
       ) : (
