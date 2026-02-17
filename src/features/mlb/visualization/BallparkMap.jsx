@@ -1,70 +1,100 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 
-export default function BallparkMap({ venue }) {
-  if (!venue) return <div style={{ color: '#555' }}>Select a team to view ballpark...</div>;
+export default function InteractiveBallpark({ venue }) {
+  const [hoverData, setHoverData] = useState(null);
 
-  // 1. Extract dimensions (with fallbacks for safety)
-  const lf = Number(venue.left_line) || 330;
-  const cf = Number(venue.center) || 400;
-  const rf = Number(venue.right_line) || 330;
+  if (!venue) return null;
 
-  // 2. SVG Coordinate Mapping
-  // We'll use a 400x400 viewbox where Home is at [200, 380]
-  const homeX = 200;
-  const homeY = 380;
-  const scale = 0.8; // Scale feet to SVG units
+  const dims = {
+    lf: Number(venue.left_line) || 330,
+    lcf: Number(venue.left_center) || 375,
+    cf: Number(venue.center) || 400,
+    rcf: Number(venue.right_center) || 375,
+    rf: Number(venue.right_line) || 330,
+  };
 
-  // 3. Calculate Foul Pole and Center Field positions
-  // Left/Right lines are 45 degrees from the center axis
-  const angle = Math.PI / 4; // 45 degrees
-  
-  const lpoleX = homeX - (Math.sin(angle) * lf * scale);
-  const lpoleY = homeY - (Math.cos(angle) * lf * scale);
-  
-  const rpoleX = homeX + (Math.sin(angle) * rf * scale);
-  const rpoleY = homeY - (Math.cos(angle) * rf * scale);
-  
-  const centerPadY = homeY - (cf * scale);
+  const scale = 0.9; 
+  const cx = 250;    
+  const cy = 450;    
 
-  // 4. Infield Dimensions (Standard 90ft)
-  const baseSize = 90 * scale;
+  const getCoords = (dist, angleDeg) => {
+    const angleRad = (angleDeg * Math.PI) / 180;
+    return {
+      x: cx - Math.sin(angleRad) * dist * scale,
+      y: cy - Math.cos(angleRad) * dist * scale
+    };
+  };
+
+  const pts = useMemo(() => [
+    { label: 'Left Field Line', dist: dims.lf, ...getCoords(dims.lf, 45) },
+    { label: 'Left-Center Alley', dist: dims.lcf, ...getCoords(dims.lcf, 22.5) },
+    { label: 'Center Field', dist: dims.cf, ...getCoords(dims.cf, 0) },
+    { label: 'Right-Center Alley', dist: dims.rcf, ...getCoords(dims.rcf, -22.5) },
+    { label: 'Right Field Line', dist: dims.rf, ...getCoords(dims.rf, -45) },
+  ], [dims]);
+
+  const handleMouseMove = (e, point) => {
+    setHoverData({
+      label: point.label,
+      dist: point.dist,
+      x: e.clientX,
+      y: e.clientY
+    });
+  };
 
   return (
-    <div style={{ background: '#0a0a0a', borderRadius: '16px', padding: '20px', border: '1px solid #222' }}>
-      <h3 style={{ margin: '0 0 10px 0', fontSize: '1rem' }}>{venue.venue_name}</h3>
-      <p style={{ color: '#888', fontSize: '0.8rem', marginBottom: '20px' }}>
-        {venue.city}, {venue.state} • {venue.capacity?.toLocaleString()} capacity
-      </p>
+    <div style={{ position: 'relative', background: '#0a0a0a', padding: '20px', borderRadius: '20px' }}>
+      
+      {/* Tooltip */}
+      {hoverData && (
+        <div style={{
+          position: 'fixed',
+          left: hoverData.x + 15,
+          top: hoverData.y - 40,
+          background: 'rgba(0, 242, 255, 0.95)',
+          color: '#000',
+          padding: '5px 12px',
+          borderRadius: '6px',
+          fontSize: '0.85rem',
+          fontWeight: 'bold',
+          pointerEvents: 'none',
+          zIndex: 1000,
+          boxShadow: '0 4px 15px rgba(0,0,0,0.5)'
+        }}>
+          {hoverData.label}: {hoverData.dist}'
+        </div>
+      )}
 
-      <svg viewBox="0 0 400 400" style={{ width: '100%', height: 'auto', maxHeight: '500px' }}>
-        {/* Outfield Grass */}
+      <svg viewBox="0 0 500 500" style={{ width: '100%', height: 'auto' }}>
+        {/* Grass Path */}
         <path 
-          d={`M ${homeX} ${homeY} L ${lpoleX} ${lpoleY} Q ${homeX} ${centerPadY} ${rpoleX} ${rpoleY} Z`}
-          fill="#143314"
-          stroke="#2d5a2d"
-          strokeWidth="2"
+          d={`M ${cx} ${cy} L ${pts[0].x} ${pts[0].y} Q ${pts[1].x} ${pts[1].y} ${pts[2].x} ${pts[2].y} Q ${pts[3].x} ${pts[3].y} ${pts[4].x} ${pts[4].y} Z`} 
+          fill="#142b14" 
+          stroke="#2d5a2d" 
+          strokeWidth="2" 
         />
 
-        {/* Infield Dirt (Diamond) */}
-        <path 
-          d={`M ${homeX} ${homeY} 
-             L ${homeX - baseSize} ${homeY - baseSize} 
-             L ${homeX} ${homeY - baseSize * 2} 
-             L ${homeX + baseSize} ${homeY - baseSize} Z`}
-          fill="#5d4037"
-        />
+        {/* Interaction Points (Invisible hit areas) */}
+        {pts.map((p, i) => (
+          <circle 
+            key={i}
+            cx={p.x} cy={p.y} r="15"
+            fill="transparent"
+            style={{ cursor: 'crosshair' }}
+            onMouseMove={(e) => handleMouseMove(e, p)}
+            onMouseLeave={() => setHoverData(null)}
+          />
+        ))}
 
-        {/* Foul Lines */}
-        <line x1={homeX} y1={homeY} x2={lpoleX} y2={lpoleY} stroke="#fff" strokeWidth="1" strokeDasharray="4" />
-        <line x1={homeX} y1={homeY} x2={rpoleX} y2={rpoleY} stroke="#fff" strokeWidth="1" strokeDasharray="4" />
+        {/* Visual Markers */}
+        {pts.map((p, i) => (
+          <circle key={`v-${i}`} cx={p.x} cy={p.y} r="4" fill="#00f2ff" opacity="0.6" />
+        ))}
 
-        {/* Distance Markers */}
-        <text x={lpoleX - 10} y={lpoleY} fill="#fff" fontSize="10" textAnchor="end">{lf}'</text>
-        <text x={homeX} y={centerPadY - 10} fill="#fff" fontSize="10" textAnchor="middle">{cf}'</text>
-        <text x={rpoleX + 10} y={rpoleY} fill="#fff" fontSize="10" textAnchor="start">{rf}'</text>
-        
-        {/* Pitcher's Mound */}
-        <circle cx={homeX} cy={homeY - baseSize} r="3" fill="#8d6e63" />
+        {/* Dirt Diamond */}
+        <path d={`M ${cx} ${cy} L ${cx-70} ${cy-70} L ${cx} ${cy-140} L ${cx+70} ${cy-70} Z`} fill="#4d342c" />
+        <circle cx={cx} cy={cy-70} r="50" fill="#142b14" />
+        <circle cx={cx} cy={cy-45} r="4" fill="#8d6e63" />
       </svg>
     </div>
   );
