@@ -12,6 +12,7 @@ import {
   Legend
 } from 'recharts';
 import LoadingSpinner3D from '../../../components/LoadingSpinner3D';
+import InteractiveBallpark from '../visualization/BallparkMap';
 import {
   fetchMLBTeamsList,
   fetchMLBTeamSeasons,
@@ -29,67 +30,6 @@ const formatPct = (v) => (v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`
 const formatNumber = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d));
 const getDateString = (v) => (v && typeof v === 'object' ? v.value : String(v || ''));
 const formatRank = (v) => (Number(v) > 0 ? `#${v}` : null);
-
-// --- Sub-Component: Interactive Ballpark ---
-function InteractiveBallpark({ venue }) {
-  const [hover, setHover] = useState(null);
-  if (!venue) return <div style={{ padding: '40px', color: '#666' }}>No ballpark data.</div>;
-
-  const dims = {
-    lf: Number(venue.left_line) || 330,
-    lcf: Number(venue.left_center) || 375,
-    cf: Number(venue.center) || 400,
-    rcf: Number(venue.right_center) || 375,
-    rf: Number(venue.right_line) || 330,
-  };
-
-  const scale = 0.85;
-  const cx = 250;
-  const cy = 450;
-
-  const getXY = (dist, deg) => {
-    const rad = (deg * Math.PI) / 180;
-    return { x: cx - Math.sin(rad) * dist * scale, y: cy - Math.cos(rad) * dist * scale };
-  };
-
-  const pts = [
-    { label: 'Left Line', dist: dims.lf, ...getXY(dims.lf, 45) },
-    { label: 'Left Center', dist: dims.lcf, ...getXY(dims.lcf, 22.5) },
-    { label: 'Center Field', dist: dims.cf, ...getXY(dims.cf, 0) },
-    { label: 'Right Center', dist: dims.rcf, ...getXY(dims.rcf, -22.5) },
-    { label: 'Right Line', dist: dims.rf, ...getXY(dims.rf, -45) },
-  ];
-
-  return (
-    <div style={{ position: 'relative', width: '100%' }}>
-      {hover && (
-        <div style={{
-          position: 'fixed', left: hover.x + 15, top: hover.y - 40,
-          background: '#00f2ff', color: '#000', padding: '4px 10px',
-          borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold', zIndex: 1000
-        }}>
-          {hover.label}: {hover.dist}'
-        </div>
-      )}
-      <svg viewBox="0 0 500 500" style={{ width: '100%', height: 'auto' }}>
-        <path 
-          d={`M ${cx} ${cy} L ${pts[0].x} ${pts[0].y} Q ${pts[1].x} ${pts[1].y} ${pts[2].x} ${pts[2].y} Q ${pts[3].x} ${pts[3].y} ${pts[4].x} ${pts[4].y} Z`} 
-          fill="#0f210f" stroke="#2d5a2d" strokeWidth="2" 
-        />
-        {pts.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r="18" fill="transparent" style={{ cursor: 'crosshair' }}
-            onMouseMove={(e) => setHover({ label: p.label, dist: p.dist, x: e.clientX, y: e.clientY })}
-            onMouseLeave={() => setHover(null)}
-          />
-        ))}
-        {pts.map((p, i) => <circle key={`v-${i}`} cx={p.x} cy={p.y} r="4" fill="#00f2ff" />)}
-        <path d={`M ${cx} ${cy} L ${cx-70} ${cy-70} L ${cx} ${cy-140} L ${cx+70} ${cy-70} Z`} fill="#4d342c" />
-        <circle cx={cx} cy={cy-70} r="52" fill="#0f210f" />
-        <circle cx={cx} cy={cy-45} r="4" fill="#8d6e63" />
-      </svg>
-    </div>
-  );
-}
 
 // --- Main Component ---
 export default function TeamExplorer({ prefillTeam }) {
