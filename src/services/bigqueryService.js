@@ -136,6 +136,11 @@ export const fetchMLBStatcastExitVelocity = async (params = {}) => {
   return response.data;
 };
 
+export const fetchMLBPlayersTeamRoster = async (teamId, params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/${teamId}/roster`, { params });
+  return response.data;
+};
+
 /**
  * Player Explorer Services
  */

@@ -21,7 +21,7 @@ import {
   fetchMLBTeamGames,
   fetchMLBTeamStatcastMetrics,
   fetchMLBVenues,
-  fetchMLBPlayersList // Added for Roster
+  fetchMLBPlayersTeamRoster
 } from '../../../services/bigqueryService';
 
 // --- Formatting Helpers ---
@@ -143,19 +143,19 @@ export default function TeamExplorer({ prefillTeam }) {
     (async () => {
       setLoading(true);
       try {
-        const [stats, sc, gameRows, venueRows, players] = await Promise.all([
+        const [stats, sc, gameRows, venueRows, rosterRows] = await Promise.all([
           fetchMLBTeamSeasonStats(selectedTeamId, { season: selectedSeason }),
           fetchMLBTeamStatcastMetrics(selectedTeamId, { season: selectedSeason }),
           fetchMLBTeamGames(selectedTeamId, { season: selectedSeason, limit: 162 }),
           fetchMLBVenues(selectedTeamId, { season: selectedSeason }),
-          fetchMLBPlayersList('', { teamId: selectedTeamId, season: selectedSeason })
+          fetchMLBPlayersTeamRoster(selectedTeamId, { season: selectedSeason })
         ]);
         if (cancelled) return;
         setSeasonStats(stats);
         setStatcastMetrics(sc);
         setGames(gameRows || []);
         setVenueData(venueRows?.[0] || null);
-        setRoster(players || []);
+        setRoster(rosterRows || []);
       } catch (e) { setError('Data fetch error'); }
       finally { setLoading(false); }
     })();
@@ -243,7 +243,7 @@ export default function TeamExplorer({ prefillTeam }) {
         )}
 
         {activeTab === 'schedule' && (
-          <Panel title={<div style={{display:'flex', justifyContent:'space-between'}}>
+          <Panel title={<div style={{display:'flex', justifyContent:'space-between', alignItems: 'center'}}>
             <span>Game Schedule</span>
             <div style={{display:'flex', gap:'8px'}}>
               <button onClick={()=>setScheduleView('previous')} style={tabBtn(scheduleView==='previous')}>Results</button>
@@ -251,28 +251,94 @@ export default function TeamExplorer({ prefillTeam }) {
             </div>
           </div>}>
             <table style={tableStyle}>
-              <thead><tr style={{color:'#666'}}><th style={thS}>Date</th><th style={thS}>Opponent</th><th style={thS}>Score/Time</th><th style={thS}>Result</th></tr></thead>
-              <tbody>{games.filter(g => scheduleView==='previous' ? g.is_final : !g.is_final).slice(0, 20).map(g => (
-                <tr key={g.game_id} style={{borderTop:'1px solid #111'}}>
-                  <td style={tdS}>{getDateString(g.game_date)}</td><td style={tdS}>{g.home_away === 'away' ? '@ ' : ''}{g.opponent_team_name}</td>
-                  <td style={tdS}>{scheduleView==='previous' ? `${g.runs_scored}-${g.runs_allowed}` : '7:10 PM'}</td>
-                  <td style={{...tdS, color: g.is_win ? '#00f2ff' : '#ff4466'}}>{scheduleView==='previous' ? (g.is_win ? 'W' : 'L') : 'TBD'}</td>
+              <thead>
+                <tr style={{color:'#666'}}>
+                  <th style={thS}>Date</th>
+                  <th style={thS}>Opponent</th>
+                  <th style={thS}>Score/Time</th>
+                  <th style={thS}>Result</th>
                 </tr>
-              ))}</tbody>
+              </thead>
+              <tbody>
+                {games
+                  .filter(g => {
+                    // A game is "previous" if it has runs_scored data
+                    const hasPlayed = g.runs_scored !== null && g.runs_scored !== undefined;
+                    return scheduleView === 'previous' ? hasPlayed : !hasPlayed;
+                  })
+                  // For Results, show newest first. For Upcoming, show soonest first.
+                  .sort((a, b) => {
+                    const dateA = new Date(getDateString(a.game_date));
+                    const dateB = new Date(getDateString(b.game_date));
+                    return scheduleView === 'previous' ? dateB - dateA : dateA - dateB;
+                  })
+                  .slice(0, 20)
+                  .map(g => {
+                    const isWin = g.is_win || (Number(g.runs_scored) > Number(g.runs_allowed));
+                    const resultText = isWin ? 'W' : 'L';
+                    
+                    return (
+                      <tr key={g.game_id} style={{borderTop:'1px solid #111'}}>
+                        <td style={tdS}>{getDateString(g.game_date)}</td>
+                        <td style={tdS}>{g.home_away === 'away' ? '@ ' : ''}{g.opponent_team_name}</td>
+                        <td style={tdS}>
+                          {g.runs_scored !== null ? `${g.runs_scored}-${g.runs_allowed}` : 'TBD'}
+                        </td>
+                        <td style={{
+                          ...tdS, 
+                          color: g.runs_scored !== null ? (isWin ? '#00f2ff' : '#ff4466') : '#666'
+                        }}>
+                          {g.runs_scored !== null ? resultText : 'Scheduled'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
             </table>
+            {/* Empty State Handler */}
+            {games.filter(g => (scheduleView === 'previous' ? g.runs_scored !== null : g.runs_scored === null)).length === 0 && (
+              <div style={{ textAlign: 'center', padding: '20px', color: '#444' }}>
+                No {scheduleView} games found for this season.
+              </div>
+            )}
           </Panel>
         )}
 
         {activeTab === 'roster' && (
           <Panel title="Active Roster">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px' }}>
-              {roster.map(p => (
-                <div key={p.player_id} style={{ padding: '16px', background: '#111', borderRadius: '12px', border: '1px solid #222' }}>
-                  <div style={{ fontSize: '1rem', fontWeight: '700' }}>{p.player_name}</div>
-                  <div style={{ fontSize: '0.8rem', color: '#888' }}>{p.primary_position_name || 'Player'}</div>
-                </div>
-              ))}
-            </div>
+            <table style={tableStyle}>
+              <thead>
+                <tr style={{ color: '#666' }}>
+                  <th style={thS}>#</th>
+                  <th style={thS}>Player</th>
+                  <th style={thS}>Pos</th>
+                  <th style={thS}>B/T</th>
+                  <th style={thS}>Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...(roster || [])]
+                  .sort((a, b) => String(a?.player_name || '').localeCompare(String(b?.player_name || '')))
+                  .map((p) => {
+                    const bt = `${p?.bat_side_code || '—'}/${p?.pitch_hand_code || '—'}`;
+                    const role = p?.is_pitcher && p?.is_batter ? 'Two-way' : (p?.is_pitcher ? 'Pitcher' : 'Batter');
+                    return (
+                      <tr key={p.player_id} style={{ borderTop: '1px solid #111' }}>
+                        <td style={tdS}>{p.primary_number || '—'}</td>
+                        <td style={tdS}>{p.player_name || '—'}</td>
+                        <td style={tdS}>{p.primary_position_abbr || '—'}</td>
+                        <td style={tdS}>{bt}</td>
+                        <td style={tdS}>{role}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+            {(roster || []).length === 0 && (
+              <div style={{ textAlign: 'center', padding: '20px', color: '#444' }}>
+                No roster data found for this team/season.
+              </div>
+            )}
           </Panel>
         )}
 
