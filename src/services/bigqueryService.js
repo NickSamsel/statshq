@@ -71,10 +71,11 @@ export const fetchNBAData = async () => ({ status: 'not_implemented', sport: 'NB
 /**
  * General MLB Utility Services
  */
-export const fetchMLBVenues = async () => {
-  const response = await axios.get(`${API_BASE_URL}/mlb/venues`, { params });
+export const fetchMLBVenues = async (teamId, params = {}) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/teams/${teamId}/venues`, { params });
   return response.data;
-}
+};
+
 export const fetchMLBTeamsList = async (params = {}) => {
   const response = await axios.get(`${API_BASE_URL}/mlb/teams/list`, { params });
   return response.data;

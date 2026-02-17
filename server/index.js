@@ -412,7 +412,7 @@ app.get('/api/mlb/statcast/pitch-zone-outcomes', async (req, res) => {
 // New: 3D Pitch Locations (Optimized - uses pre-aggregated heatmap)
 app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
   try {
-    const { playerId, season = 2024, viewType = 'batting' } = req.query;
+    const { playerId, season = 2025, viewType = 'batting' } = req.query;
     const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
     const career = isCareerSeasonParam(season);
 
@@ -451,7 +451,7 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
       player_type: playerType
     };
     if (!career) {
-      params.season = parseIntParam(season, 2024);
+      params.season = parseIntParam(season, 2025);
     }
 
     const data = await runQuery(query, params);
@@ -866,9 +866,11 @@ app.get('/api/mlb/batting', async (req, res) => {
 });
 
 // Venue Information
-app.get('/api/mlb/venues', async (req, res) => {
+app.get('/api/mlb/teams/:teamId/venues', async (req, res) => {
   try {
-    const {seasonParam = req.query.season, homeTeamId = req.query.homeTeamId} = req.query;
+    const { teamId } = req.params; 
+    const seasonVal = req.query.season || req.query.seasonParam;
+
     const query = `
       SELECT 
         venue_name,
@@ -885,15 +887,24 @@ app.get('/api/mlb/venues', async (req, res) => {
         center,
         left_distance,
         right_distance,
-        left_center_distance,
-        right_center_distance,
+        left_center,
+        right_center,
         primary_home_team_id,
         primary_home_team_name
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__venues\`
-      WHERE season = @season and primary_home_team_id = @home_team_id`;
-    const data = await runQuery(query, { season: parseIntParam(seasonParam, 2025), home_team_id: String(homeTeamId) });
+      WHERE season = @season 
+      AND primary_home_team_id = @home_team_id`;
+
+    const queryParams = {
+      season: parseIntParam(seasonVal, 2025),
+      home_team_id: String(teamId)
+    };
+
+    const data = await runQuery(query, queryParams);
     res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
     
 

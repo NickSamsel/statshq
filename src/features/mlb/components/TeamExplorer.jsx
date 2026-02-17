@@ -19,7 +19,8 @@ import {
   fetchMLBTeamStandingsHistory,
   fetchMLBTeamSeasonStats,
   fetchMLBTeamGames,
-  fetchMLBTeamStatcastMetrics
+  fetchMLBTeamStatcastMetrics,
+  fetchMLBVenues
 } from '../../../services/bigqueryService';
 
 function formatPct(value) {
@@ -170,7 +171,8 @@ export default function TeamExplorer({ prefillTeam }) {
         const [seasonRow, statcastRow, gameRows] = await Promise.all([
           fetchMLBTeamSeasonStats(selectedTeamId, { season: selectedSeason }),
           fetchMLBTeamStatcastMetrics(selectedTeamId, { season: selectedSeason }),
-          fetchMLBTeamGames(selectedTeamId, { season: selectedSeason, limit: 162 })
+          fetchMLBTeamGames(selectedTeamId, { season: selectedSeason, limit: 162 }),
+          fetchMLBVenues(selectedTeamId, { season: selectedSeason })
         ]);
         if (cancelled) return;
         setSeasonStats(seasonRow);
