@@ -85,7 +85,8 @@ app.get('/', (req, res) => {
         battedBallStats: '/api/mlb/statcast/batted-ball-stats?playerId=XXX&season=2024&viewType=batting',
         seasonBattingStats: '/api/mlb/players/season-batting-stats?playerId=XXX&season=2024',
         seasonPitchingStats: '/api/mlb/players/season-pitching-stats?playerId=XXX&season=2024',
-        batting: '/api/mlb/batting?season=2024&limit=20'
+        batting: '/api/mlb/batting?season=2024&limit=20',
+        venues: '/api/mlb/venues'
       }
     }
   });
@@ -863,6 +864,38 @@ app.get('/api/mlb/batting', async (req, res) => {
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// Venue Information
+app.get('/api/mlb/venues', async (req, res) => {
+  try {
+    const {seasonParam = req.query.season, homeTeamId = req.query.homeTeamId} = req.query;
+    const query = `
+      SELECT 
+        venue_name,
+        season,
+        active,
+        city,
+        state,
+        country,
+        capacity,
+        turf_type,
+        roof_type,
+        left_line,
+        right_line,
+        center,
+        left_distance,
+        right_distance,
+        left_center_distance,
+        right_center_distance,
+        primary_home_team_id,
+        primary_home_team_name
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__venues\`
+      WHERE season = @season and primary_home_team_id = @home_team_id`;
+    const data = await runQuery(query, { season: parseIntParam(seasonParam, 2025), home_team_id: String(homeTeamId) });
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+    
 
 // --- 3. THE 404 HANDLER (MUST BE LAST) ---
 app.use((req, res) => {

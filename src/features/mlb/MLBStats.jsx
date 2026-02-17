@@ -78,6 +78,12 @@ function MLBStats() {
               active={activeTab === 'team'}
               onClick={() => setActiveTab('team')}
             />
+            <NavTab
+              label="Beat the Streak Analysis"
+              icon="📊"
+              active={activeTab === 'beat-the-streak'}
+              onClick={() => setActiveTab('beat-the-streak')}
+            />
           </nav>
         </div>
       </div>
