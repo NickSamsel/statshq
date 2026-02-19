@@ -124,7 +124,18 @@ app.get('/api/mlb/teams/:teamId/season-stats', async (req, res) => {
   try {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season, 2025);
-    const query = `WITH ranked AS (SELECT t.*, RANK() OVER (ORDER BY wins DESC) AS wins_rank, RANK() OVER (ORDER BY season_era ASC) AS era_rank FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t WHERE season = @season) SELECT * FROM ranked WHERE team_id = @team_id LIMIT 1`;
+    const query = `
+      WITH ranked AS (
+        SELECT
+          t.*,
+          RANK() OVER (ORDER BY season_ops DESC) AS ops_rank,
+          RANK() OVER (ORDER BY season_era ASC) AS era_rank,
+          RANK() OVER (ORDER BY wins DESC) AS wins_rank
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t
+        WHERE season = @season
+      )
+      SELECT * FROM ranked WHERE team_id = @team_id LIMIT 1
+    `;
     const data = await runQuery(query, { team_id: teamId, season });
     res.json(data?.[0] || null);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -149,6 +160,65 @@ app.get('/api/mlb/teams/:teamId/venues', async (req, res) => {
     const data = await runQuery(query, { season: parseIntParam(seasonVal, 2025), home_team_id: String(teamId) });
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/mlb/teams/:teamId/statcast-metrics', async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const season = parseIntParam(req.query.season, 2025);
+
+    // Aggregate team-level statcast metrics from player batted ball stats
+    const query = `
+      SELECT
+        AVG(avg_exit_velo) AS avg_exit_velocity,
+        MAX(max_exit_velo) AS max_exit_velocity,
+        AVG(avg_launch_angle) AS avg_launch_angle,
+        AVG(hard_hit_rate) AS hard_hit_rate,
+        AVG(barrel_rate) AS barrel_rate,
+        COUNT(DISTINCT player_id) AS players_count
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batted_ball_season_stats\`
+      WHERE season = @season
+        AND player_type = 'batter'
+    `;
+
+    const data = await runQuery(query, { season });
+    res.json(data?.[0] || null);
+  } catch (err) {
+    console.error('Error fetching team statcast metrics:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/mlb/teams/:teamId/standings-history', async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const season = parseIntParam(req.query.season, 2025);
+
+    // Get historical standings data for the team throughout the season
+    const query = `
+      SELECT
+        team_id,
+        team_name,
+        season,
+        standings_date,
+        wins,
+        losses,
+        win_pct,
+        games_back,
+        division_rank,
+        run_differential
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\`
+      WHERE team_id = @team_id
+        AND season = @season
+      ORDER BY standings_date ASC
+    `;
+
+    const data = await runQuery(query, { team_id: String(teamId), season });
+    res.json(data || []);
+  } catch (err) {
+    console.error('Error fetching team standings history:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // General Catch-all for Teams
@@ -184,23 +254,13 @@ app.get('/api/mlb/players/search', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/mlb/pitching', async (req, res) => {
-  try {
-    const { season = 2025, limit = 20 } = req.query;
-    const query = `
-      SELECT player_id, full_name as player_name, team_name, era, strikeouts, wins
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\`
-      WHERE season = ${season} ORDER BY strikeouts DESC LIMIT ${limit}`;
-    const data = await runQuery(query);
-    res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
-app.get('/api/mlb/games/recent', async (req, res) => {
+app.get('/api/mlb/players/:playerId/info', async (req, res) => {
   try {
-    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_game_stats\` ORDER BY game_date DESC LIMIT 10`;
-    const data = await runQuery(query);
-    res.json(data);
+    const { playerId } = req.params;
+    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` WHERE player_id = @player_id LIMIT 1`;
+    const data = await runQuery(query, { player_id: String(playerId) });
+    res.json(data?.[0] || null);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -213,22 +273,123 @@ app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\` WHERE player_id = @player_id ORDER BY season DESC`;
+    const data = await runQuery(query, { player_id: String(playerId) });
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/mlb/players/season-stats', async (req, res) => {
+  try {
+    const { playerId, season } = req.query;
+    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` WHERE player_id = @player_id AND season = @season LIMIT 1`;
+    const data = await runQuery(query, { player_id: String(playerId), season: parseIntParam(season, 2025) });
+    res.json(data?.[0] || null);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/mlb/statcast/pitch-zone-outcomes', async (req, res) => {
+  try {
+    const { playerId, season = 2025, viewType = 'batting' } = req.query;
+    const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
+
+    // This aggregates pitch outcomes by zone
+    const query = `
+      SELECT
+        zone,
+        COUNT(*) as pitch_count,
+        AVG(release_speed) as avg_velocity,
+        SUM(CASE WHEN description IN ('hit_into_play', 'foul') THEN 1 ELSE 0 END) as contact_count,
+        SUM(CASE WHEN description = 'called_strike' THEN 1 ELSE 0 END) as called_strikes,
+        SUM(CASE WHEN description = 'swinging_strike' THEN 1 ELSE 0 END) as swinging_strikes
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_pitches\`
+      WHERE ${playerType}_id = @player_id
+        AND season = @season
+        AND zone IS NOT NULL
+      GROUP BY zone
+      ORDER BY zone
+    `;
+
+    const data = await runQuery(query, { player_id: String(playerId), season: parseIntParam(season, 2025) });
+    res.json(data);
+  } catch (err) {
+    console.error('Error fetching pitch zone outcomes:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/mlb/statcast/batted-ball-stats', async (req, res) => {
+  try {
+    const { playerId, season = 2025, viewType = 'batting' } = req.query;
+    const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
+
+    const query = `
+      SELECT *
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batted_ball_season_stats\`
+      WHERE player_id = @player_id
+        AND season = @season
+        AND player_type = @player_type
+      LIMIT 1
+    `;
+
+    const data = await runQuery(query, {
+      player_id: String(playerId),
+      season: parseIntParam(season, 2025),
+      player_type: playerType
+    });
+    res.json(data?.[0] || null);
+  } catch (err) {
+    console.error('Error fetching batted ball stats:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Batting Stats Leaderboard
+app.get('/api/mlb/batting', async (req, res) => {
+  try {
+    const { season = 2025, limit = 20 } = req.query;
+    const query = `
+      SELECT
+        player_id,
+        team_id,
+        avg,
+        obp,
+        slg,
+        ops,
+        home_runs,
+        rbi,
+        stolen_bases
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\`
+      WHERE season = @season
+      ORDER BY ops DESC
+      LIMIT @limit`;
+
+    const data = await runQuery(query, {
+      season: parseIntParam(season, 2025),
+      limit: parseLimit(limit, 20)
+    });
+    res.json(data);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Pitching Stats Leaderboard
 app.get('/api/mlb/pitching', async (req, res) => {
   try {
     const { season = 2025, limit = 20 } = req.query;
     const query = `
-      SELECT 
-        player_id, 
-        full_name as player_name, 
-        team_name, 
-        era, 
-        strikeouts, 
+      SELECT
+        player_id,
+        team_id,
+        era,
+        strikeouts,
         wins,
         whip
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\`
-      WHERE season = @season 
-      ORDER BY strikeouts DESC 
+      WHERE season = @season
+      ORDER BY strikeouts DESC
       LIMIT @limit`;
 
     const data = await runQuery(query, {
