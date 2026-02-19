@@ -15,7 +15,7 @@ const bigquery = new BigQuery({
   projectId: process.env.GCP_PROJECT_ID,
   ...(process.env.GOOGLE_APPLICATION_CREDENTIALS && { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS })
 });
-const DATASET = 'mlb';
+const DATASET = 'mlb_marts';
 
 const columnCache = new Map();
 
@@ -615,7 +615,7 @@ app.get('/api/mlb/players/:playerId/info', async (req, res) => {
       WHERE d.player_id = '${playerId}'
       LIMIT 1`;
     const data = await runQuery(query);
-    
+
     if (data && data[0]) {
       res.json(data[0]);
     } else {
@@ -686,7 +686,7 @@ app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
       ORDER BY season DESC`;
 
     const data = await runQuery(query, { player_id: String(playerId) });
-    
+
     // Format response with proper types (caught_stealing, hit_by_pitch, sacrifice_flies, war not in schema)
     const formatted = data.map(row => ({
       season: row.season,
@@ -724,7 +724,7 @@ app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
       ops_percentile: row.ops_percentile ?? null,
       war_percentile: row.war_percentile ?? null
     }));
-    
+
     res.json(formatted);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -815,7 +815,7 @@ app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => 
       ORDER BY season DESC`;
 
     const data = await runQuery(query, { player_id: String(playerId) });
-    
+
     // Format response with proper types (caught_stealing, hit_by_pitch, sacrifice_flies, war not in schema)
     const formatted = data.map(row => ({
       season: row.season,
@@ -845,7 +845,7 @@ app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => 
       avg_pitch_velocity_percentile: row.avg_pitch_velocity_percentile ?? null,
       war_percentile: row.war_percentile ?? null
     }));
-    
+
     res.json(formatted);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
