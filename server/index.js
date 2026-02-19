@@ -78,14 +78,16 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       mlb: {
-        playerSearch: '/api/mlb/players/search?q=ohtani',
+        playerSearch: '/api/mlb/players/search?q=playername',
         playerInfo: '/api/mlb/players/:playerId/info',
         playerSeasons: '/api/mlb/players/:playerId/seasons',
         pitchLocations: '/api/mlb/statcast/pitch-locations?playerId=XXX&season=2024&viewType=batting',
         battedBallStats: '/api/mlb/statcast/batted-ball-stats?playerId=XXX&season=2024&viewType=batting',
         seasonBattingStats: '/api/mlb/players/season-batting-stats?playerId=XXX&season=2024',
         seasonPitchingStats: '/api/mlb/players/season-pitching-stats?playerId=XXX&season=2024',
-        batting: '/api/mlb/batting?season=2024&limit=20'
+        batting: '/api/mlb/batting?season=2024&limit=20',
+        venues: '/api/mlb/venues',
+        rosters: '/api/mlb/teams/:teamId/roster?season=2024',
       }
     }
   });
@@ -97,15 +99,6 @@ app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 // Silently handle common browser requests
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 app.get('/.well-known/*', (req, res) => res.status(204).end());
-
-/**
- * --- MLB Teams ---
- * Uses new team-level tables:
- * - fct_mlb__standings
- * - fct_mlb__team_season_stats
- * - fct_mlb__team_game_stats
- * - fct_mlb__team_statcast_metrics
- */
 
 // Seasons available for team tables
 app.get('/api/mlb/teams/seasons', async (req, res) => {
@@ -280,6 +273,63 @@ app.get('/api/mlb/teams/:teamId/games', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Team roster for a season (derived from season stat tables)
+// Returns players who appeared for the team in either batting or pitching season stats.
+app.get('/api/mlb/teams/:teamId/roster', async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const season = parseIntParam(req.query.season, 2025);
+
+    const query = `
+      WITH batters AS (
+        SELECT DISTINCT player_id
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\`
+        WHERE team_id = @team_id AND season = @season
+      ),
+      pitchers AS (
+        SELECT DISTINCT player_id
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\`
+        WHERE team_id = @team_id AND season = @season
+      ),
+      roster_flags AS (
+        SELECT player_id, TRUE AS is_batter, FALSE AS is_pitcher FROM batters
+        UNION ALL
+        SELECT player_id, FALSE AS is_batter, TRUE AS is_pitcher FROM pitchers
+      ),
+      roster AS (
+        SELECT
+          player_id,
+          MAX(CAST(is_batter AS INT64)) > 0 AS is_batter,
+          MAX(CAST(is_pitcher AS INT64)) > 0 AS is_pitcher
+        FROM roster_flags
+        GROUP BY player_id
+      )
+      SELECT
+        r.player_id,
+        d.full_name AS player_name,
+        d.primary_number,
+        d.primary_position_abbr,
+        d.bat_side_code,
+        d.pitch_hand_code,
+        r.is_batter,
+        r.is_pitcher,
+        @team_id AS team_id,
+        @season AS season
+      FROM roster r
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` d
+        ON r.player_id = d.player_id
+      ORDER BY
+        r.is_pitcher DESC,
+        d.primary_position_abbr,
+        d.full_name`;
+
+    const data = await runQuery(query, { team_id: String(teamId), season });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Team standings history (daily)
 app.get('/api/mlb/teams/:teamId/standings-history', async (req, res) => {
   try {
@@ -411,7 +461,7 @@ app.get('/api/mlb/statcast/pitch-zone-outcomes', async (req, res) => {
 // New: 3D Pitch Locations (Optimized - uses pre-aggregated heatmap)
 app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
   try {
-    const { playerId, season = 2024, viewType = 'batting' } = req.query;
+    const { playerId, season = 2025, viewType = 'batting' } = req.query;
     const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
     const career = isCareerSeasonParam(season);
 
@@ -450,7 +500,7 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
       player_type: playerType
     };
     if (!career) {
-      params.season = parseIntParam(season, 2024);
+      params.season = parseIntParam(season, 2025);
     }
 
     const data = await runQuery(query, params);
@@ -863,6 +913,49 @@ app.get('/api/mlb/batting', async (req, res) => {
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// Venue Information
+app.get('/api/mlb/teams/:teamId/venues', async (req, res) => {
+  try {
+    const { teamId } = req.params; 
+    const seasonVal = req.query.season || req.query.seasonParam;
+
+    const query = `
+      SELECT 
+        venue_name,
+        season,
+        active,
+        city,
+        state,
+        country,
+        capacity,
+        turf_type,
+        roof_type,
+        left_line,
+        right_line,
+        center,
+        left_distance,
+        right_distance,
+        left_center,
+        right_center,
+        primary_home_team_id,
+        primary_home_team_name
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__venues\`
+      WHERE season = @season 
+      AND primary_home_team_id = @home_team_id`;
+
+    const queryParams = {
+      season: parseIntParam(seasonVal, 2025),
+      home_team_id: String(teamId)
+    };
+
+    const data = await runQuery(query, queryParams);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+    
 
 // --- 3. THE 404 HANDLER (MUST BE LAST) ---
 app.use((req, res) => {
