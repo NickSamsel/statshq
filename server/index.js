@@ -870,4 +870,4 @@ app.use((req, res) => {
   res.status(404).json({ error: "Route not found", path: req.url });
 });
 
-app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Backend running on port ${PORT}`));
