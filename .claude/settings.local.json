@@ -15,7 +15,11 @@
       "Bash(curl -s 'http://localhost:8080/api/mlb/pitching?season=2024&limit=3')",
       "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/season-stats?season=2024')",
       "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/statcast-metrics?season=2024')",
-      "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/standings-history?season=2024')"
+      "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/standings-history?season=2024')",
+      "Bash(netstat -tlnp)",
+      "Bash(ss -tlnp)",
+      "Bash(curl -s http://127.0.0.1:8080/health)",
+      "Bash(echo \"Failed with code $?\")"
     ],
     "deny": [],
     "ask": []
