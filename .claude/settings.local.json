@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8080/health)",
+      "Bash(node index.js)",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/list?season=2024\")",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/109/statcast-metrics?season=2024\")",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/109/standings-history?season=2024\")",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/109/season-stats?season=2024\")",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/standings?season=2024\")",
+      "Bash(curl -s http://localhost:8080/api/mlb/teams/list?season=2024)",
+      "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/roster?season=2024')",
+      "Bash(curl -s 'http://localhost:8080/api/mlb/players/660271/season-batting-stats')",
+      "Bash(curl -s 'http://localhost:8080/api/mlb/batting?season=2024&limit=3')",
+      "Bash(curl -s 'http://localhost:8080/api/mlb/pitching?season=2024&limit=3')",
+      "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/season-stats?season=2024')",
+      "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/statcast-metrics?season=2024')",
+      "Bash(curl -s 'http://localhost:8080/api/mlb/teams/109/standings-history?season=2024')"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
