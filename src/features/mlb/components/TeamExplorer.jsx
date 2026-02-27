@@ -116,9 +116,9 @@ export default function TeamExplorer({ prefillTeam }) {
         setStandingsSnapshot(team || null);
         setStandingsHistory(hist || []);
         if (team?.division_id) {
-          setDivisionStandings(rows.filter(r => r.division_id === team.division_id).sort((a,b) => (a.division_rank || 99) - (b.division_rank || 99)));
+          setDivisionStandings(rows.filter(r => r.division_id === team.division_id).sort((a, b) => (a.division_rank || 99) - (b.division_rank || 99)));
         }
-      } catch (e) {}
+      } catch (e) { }
     })();
   }, [selectedSeason, selectedTeamId]);
 
@@ -131,20 +131,11 @@ export default function TeamExplorer({ prefillTeam }) {
   return (
     <div style={{ minHeight: '100vh', background: '#050505', color: '#fff', padding: '40px' }}>
       {loading && <LoadingSpinner3D />}
-      
+
       <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
             <h2 style={{ fontSize: '1.8rem', margin: 0 }}>Team Explorer</h2>
-            <nav style={{ display: 'flex', background: '#111', padding: '4px', borderRadius: '12px' }}>
-              {['performance', 'schedule', 'roster', 'ballpark'].map(t => (
-                <button key={t} onClick={() => setActiveTab(t)} style={{
-                  padding: '8px 16px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                  background: activeTab === t ? '#222' : 'transparent',
-                  color: activeTab === t ? '#00f2ff' : '#666', fontWeight: '600'
-                }}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>
-              ))}
-            </nav>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
             <select value={selectedSeason ?? ''} onChange={e => setSelectedSeason(Number(e.target.value))} style={selectStyle}>
@@ -156,6 +147,47 @@ export default function TeamExplorer({ prefillTeam }) {
           </div>
         </header>
 
+        {/* Main Navigation Tabs */}
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '32px',
+          padding: '6px',
+          background: '#0a0a0a',
+          borderRadius: '12px',
+          border: '1px solid #333',
+          overflowX: 'auto',
+          whiteSpace: 'nowrap'
+        }}>
+          {[
+            { id: 'performance', label: 'Performance', icon: '📈' },
+            { id: 'schedule', label: 'Schedule', icon: '📅' },
+            { id: 'roster', label: 'Roster', icon: '👥' },
+            { id: 'ballpark', label: 'Ballpark', icon: '🏟️' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: '12px 24px',
+                background: activeTab === tab.id ? '#00f2ff' : 'transparent',
+                color: activeTab === tab.id ? '#000' : '#888',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <span>{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         {activeTab === 'performance' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
@@ -166,13 +198,13 @@ export default function TeamExplorer({ prefillTeam }) {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
               <Panel title="Run Differential Trend"><div style={{ height: 300 }}>
-                <ResponsiveContainer><LineChart data={cumulativeRunDiff}><CartesianGrid stroke="#222" strokeDasharray="3 3"/><XAxis dataKey="game" stroke="#555"/><YAxis stroke="#555"/><Tooltip contentStyle={{background:'#111', border:'#333'}}/><Line type="monotone" dataKey="diff" stroke="#00f2ff" dot={false}/></LineChart></ResponsiveContainer>
+                <ResponsiveContainer><LineChart data={cumulativeRunDiff}><CartesianGrid stroke="#222" strokeDasharray="3 3" /><XAxis dataKey="game" stroke="#555" /><YAxis stroke="#555" /><Tooltip contentStyle={{ background: '#111', border: '#333' }} /><Line type="monotone" dataKey="diff" stroke="#00f2ff" dot={false} /></LineChart></ResponsiveContainer>
               </div></Panel>
               <Panel title="Division Standings">
                 <table style={tableStyle}>
-                  <thead><tr style={{color:'#666'}}><th style={thS}>Pos</th><th style={thS}>Team</th><th style={thS}>W-L</th><th style={thS}>GB</th></tr></thead>
+                  <thead><tr style={{ color: '#666' }}><th style={thS}>Pos</th><th style={thS}>Team</th><th style={thS}>W-L</th><th style={thS}>GB</th></tr></thead>
                   <tbody>{divisionStandings.map(r => (
-                    <tr key={r.team_id} style={{borderTop:'1px solid #111', background: String(r.team_id)===selectedTeamId ? '#00f2ff11':''}}>
+                    <tr key={r.team_id} style={{ borderTop: '1px solid #111', background: String(r.team_id) === selectedTeamId ? '#00f2ff11' : '' }}>
                       <td style={tdS}>{r.division_rank}</td><td style={tdS}>{r.team_name}</td><td style={tdS}>{r.wins}-{r.losses}</td><td style={tdS}>{r.games_back}</td>
                     </tr>
                   ))}</tbody>
@@ -183,16 +215,16 @@ export default function TeamExplorer({ prefillTeam }) {
         )}
 
         {activeTab === 'schedule' && (
-          <Panel title={<div style={{display:'flex', justifyContent:'space-between', alignItems: 'center'}}>
+          <Panel title={<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Game Schedule</span>
-            <div style={{display:'flex', gap:'8px'}}>
-              <button onClick={()=>setScheduleView('previous')} style={tabBtn(scheduleView==='previous')}>Results</button>
-              <button onClick={()=>setScheduleView('future')} style={tabBtn(scheduleView==='future')}>Upcoming</button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => setScheduleView('previous')} style={tabBtn(scheduleView === 'previous')}>Results</button>
+              <button onClick={() => setScheduleView('future')} style={tabBtn(scheduleView === 'future')}>Upcoming</button>
             </div>
           </div>}>
             <table style={tableStyle}>
               <thead>
-                <tr style={{color:'#666'}}>
+                <tr style={{ color: '#666' }}>
                   <th style={thS}>Date</th>
                   <th style={thS}>Opponent</th>
                   <th style={thS}>Score/Time</th>
@@ -216,16 +248,16 @@ export default function TeamExplorer({ prefillTeam }) {
                   .map(g => {
                     const isWin = g.is_win || (Number(g.runs_scored) > Number(g.runs_allowed));
                     const resultText = isWin ? 'W' : 'L';
-                    
+
                     return (
-                      <tr key={g.game_id} style={{borderTop:'1px solid #111'}}>
+                      <tr key={g.game_id} style={{ borderTop: '1px solid #111' }}>
                         <td style={tdS}>{getDateString(g.game_date)}</td>
                         <td style={tdS}>{g.home_away === 'away' ? '@ ' : ''}{g.opponent_team_name}</td>
                         <td style={tdS}>
                           {g.runs_scored !== null ? `${g.runs_scored}-${g.runs_allowed}` : 'TBD'}
                         </td>
                         <td style={{
-                          ...tdS, 
+                          ...tdS,
                           color: g.runs_scored !== null ? (isWin ? '#00f2ff' : '#ff4466') : '#666'
                         }}>
                           {g.runs_scored !== null ? resultText : 'Scheduled'}
@@ -293,7 +325,7 @@ export default function TeamExplorer({ prefillTeam }) {
                 <MiniStat label="Roof" value={venueData?.roof_type} />
               </Panel>
               <Panel title="Dimensions">
-                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px'}}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <MiniStat label="LF" value={venueData?.left_line} />
                   <MiniStat label="RF" value={venueData?.right_line} />
                   <MiniStat label="CF" value={venueData?.center} />
@@ -312,7 +344,7 @@ const selectStyle = { padding: '10px', background: '#111', border: '1px solid #3
 const tableStyle = { width: '100%', borderCollapse: 'collapse', textAlign: 'left' };
 const thS = { padding: '12px 8px', fontSize: '0.8rem', textTransform: 'uppercase' };
 const tdS = { padding: '12px 8px' };
-const tabBtn = (active) => ({ 
+const tabBtn = (active) => ({
   padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
   background: active ? '#00f2ff22' : 'transparent', color: active ? '#00f2ff' : '#666'
 });
