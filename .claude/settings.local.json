@@ -19,7 +19,10 @@
       "Bash(netstat -tlnp)",
       "Bash(ss -tlnp)",
       "Bash(curl -s http://127.0.0.1:8080/health)",
-      "Bash(echo \"Failed with code $?\")"
+      "Bash(echo \"Failed with code $?\")",
+      "Bash(npm install)",
+      "Bash(sudo chown:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

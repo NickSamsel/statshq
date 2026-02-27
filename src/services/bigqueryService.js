@@ -42,8 +42,13 @@ export const fetchMLBStatcastData = async (params = {}) => {
  * Useful for heatmaps (much smaller/faster than raw pitch locations)
  */
 export const fetchMLBPitchZoneOutcomes = async (params = {}) => {
-  const response = await axios.get(`${API_BASE_URL}/mlb/statcast/pitch-zone-outcomes`, { params });
-  return response.data;
+  try {
+    const response = await axios.get(`${API_BASE_URL}/mlb/statcast/pitch-zone-outcomes`, { params });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching MLB pitch zone outcomes:', error);
+    return [];
+  }
 };
 
 /**
@@ -208,5 +213,15 @@ export const fetchMLBPlayerPitchingSeasons = async (playerId) => {
 export const fetchMLBPlayerSeasonHistory = async (playerId) => {
   // Default to batting stats for backwards compatibility
   return fetchMLBPlayerBattingSeasons(playerId);
+};
+
+/**
+ * Fetches today's Beat the Streak ML predictions
+ */
+export const fetchMLBPredictions = async (riskProfile = 'balanced', limit = 20) => {
+  const response = await axios.get(`${API_BASE_URL}/mlb/predictions/today`, {
+    params: { riskProfile, limit }
+  });
+  return response.data;
 };
 

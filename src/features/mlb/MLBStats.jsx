@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import PlayerExplorer from './components/PlayerExplorer';
 import TeamExplorer from './components/TeamExplorer';
+import BeatTheStreak from './components/BeatTheStreak';
 
 /**
  * MLBStats Component
@@ -95,6 +96,9 @@ function MLBStats() {
         </div>
         <div style={{ display: activeTab === 'team' ? 'block' : 'none' }}>
           <TeamExplorer prefillTeam={teamPrefill} />
+        </div>
+        <div style={{ display: activeTab === 'beat-the-streak' ? 'block' : 'none' }}>
+          <BeatTheStreak />
         </div>
       </div>
     </div>

@@ -155,9 +155,14 @@ app.get('/api/mlb/teams/:teamId/games', async (req, res) => {
 app.get('/api/mlb/teams/:teamId/venues', async (req, res) => {
   try {
     const { teamId } = req.params;
-    const seasonVal = req.query.season || 2025;
-    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__venues\` WHERE season = @season AND primary_home_team_id = @home_team_id`;
-    const data = await runQuery(query, { season: parseIntParam(seasonVal, 2025), home_team_id: String(teamId) });
+    const season = parseIntParam(req.query.season || 2025, 2025);
+    const query = `
+      SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__venues\`
+      WHERE primary_home_team_id = @home_team_id
+      ORDER BY ABS(season - @season) ASC, season DESC
+      LIMIT 1
+    `;
+    const data = await runQuery(query, { home_team_id: String(teamId), season });
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -166,22 +171,13 @@ app.get('/api/mlb/teams/:teamId/statcast-metrics', async (req, res) => {
   try {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season, 2025);
-
-    // Aggregate team-level statcast metrics from player batted ball stats
     const query = `
-      SELECT
-        AVG(avg_exit_velo) AS avg_exit_velocity,
-        MAX(max_exit_velo) AS max_exit_velocity,
-        AVG(avg_launch_angle) AS avg_launch_angle,
-        AVG(hard_hit_rate) AS hard_hit_rate,
-        AVG(barrel_rate) AS barrel_rate,
-        COUNT(DISTINCT player_id) AS players_count
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batted_ball_season_stats\`
-      WHERE season = @season
-        AND player_type = 'batter'
+      SELECT *
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_statcast_metrics\`
+      WHERE team_id = @team_id AND season = @season
+      LIMIT 1
     `;
-
-    const data = await runQuery(query, { season });
+    const data = await runQuery(query, { team_id: String(teamId), season });
     res.json(data?.[0] || null);
   } catch (err) {
     console.error('Error fetching team statcast metrics:', err);
@@ -239,7 +235,26 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
     const { playerId, season = 2025, viewType = 'batting' } = req.query;
     const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
     const career = isCareerSeasonParam(season);
-    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitch_heatmap\` WHERE player_id = @player_id AND player_type = @player_type ${career ? 'AND season IS NULL' : 'AND season = @season'} LIMIT 500`;
+    // Alias plate_x_bin/plate_z_bin → plate_x/plate_z for frontend compatibility
+    // Also alias avg_velocity/avg_spin_rate to release_speed/release_spin_rate
+    const query = `
+      SELECT
+        player_id, player_type, season,
+        plate_x_bin AS plate_x,
+        plate_z_bin AS plate_z,
+        pitch_type, pitch_type_description,
+        pitch_result_category, pitch_result_category AS pitch_result_description,
+        zone, in_strike_zone, pitch_count,
+        avg_velocity AS release_speed,
+        avg_spin_rate AS release_spin_rate,
+        latest_game_date,
+        called_strikes, swinging_strikes, balls, fouls, in_play,
+        called_strike_rate, swinging_strike_rate, ball_rate, foul_rate, in_play_rate, strike_rate
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitch_heatmap\`
+      WHERE player_id = @player_id AND player_type = @player_type
+        ${career ? 'AND season IS NULL' : 'AND season = @season'}
+      LIMIT 500
+    `;
     const data = await runQuery(query, { player_id: String(playerId), player_type: playerType, season: parseIntParam(season, 2025) });
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -258,9 +273,24 @@ app.get('/api/mlb/players/search', async (req, res) => {
 app.get('/api/mlb/players/:playerId/info', async (req, res) => {
   try {
     const { playerId } = req.params;
-    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` WHERE player_id = @player_id LIMIT 1`;
-    const data = await runQuery(query, { player_id: String(playerId) });
-    res.json(data?.[0] || null);
+    const pid = String(playerId);
+
+    const [playerRows, batterRows, pitcherRows] = await Promise.all([
+      runQuery(`SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` WHERE player_id = @player_id LIMIT 1`, { player_id: pid }),
+      runQuery(`SELECT player_id FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` WHERE player_id = @player_id LIMIT 1`, { player_id: pid }),
+      runQuery(`SELECT player_id FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\` WHERE player_id = @player_id LIMIT 1`, { player_id: pid })
+    ]);
+
+    const player = playerRows?.[0];
+    if (!player) return res.json(null);
+
+    const isBatter = batterRows.length > 0;
+    const isPitcher = pitcherRows.length > 0;
+    player.is_batter = isBatter;
+    player.is_pitcher = isPitcher;
+    player.is_two_way_player = isBatter && isPitcher;
+
+    res.json(player);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -295,25 +325,15 @@ app.get('/api/mlb/statcast/pitch-zone-outcomes', async (req, res) => {
   try {
     const { playerId, season = 2025, viewType = 'batting' } = req.query;
     const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
-
-    // This aggregates pitch outcomes by zone
     const query = `
-      SELECT
-        zone,
-        COUNT(*) as pitch_count,
-        AVG(release_speed) as avg_velocity,
-        SUM(CASE WHEN description IN ('hit_into_play', 'foul') THEN 1 ELSE 0 END) as contact_count,
-        SUM(CASE WHEN description = 'called_strike' THEN 1 ELSE 0 END) as called_strikes,
-        SUM(CASE WHEN description = 'swinging_strike' THEN 1 ELSE 0 END) as swinging_strikes
-      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__statcast_pitches\`
-      WHERE ${playerType}_id = @player_id
+      SELECT *
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__pitch_zone_outcomes\`
+      WHERE player_id = @player_id
+        AND player_type = @player_type
         AND season = @season
-        AND zone IS NOT NULL
-      GROUP BY zone
       ORDER BY zone
     `;
-
-    const data = await runQuery(query, { player_id: String(playerId), season: parseIntParam(season, 2025) });
+    const data = await runQuery(query, { player_id: String(playerId), player_type: playerType, season: parseIntParam(season, 2025) });
     res.json(data);
   } catch (err) {
     console.error('Error fetching pitch zone outcomes:', err);
@@ -434,6 +454,124 @@ app.get('/api/mlb/games/recent', async (req, res) => {
     const data = await runQuery(query);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- PREDICTIONS ROUTES ---
+const PREDICTIONS_DATASET = 'mlb_modeling';
+
+app.get('/api/mlb/predictions/today', async (req, res) => {
+  try {
+    const { riskProfile = 'balanced', limit = 20 } = req.query;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+    // Batting average thresholds per risk profile
+    const thresholds = {
+      aggressive: 0.20,
+      balanced: 0.25,
+      conservative: 0.28,
+      very_conservative: 0.30,
+      ultra_conservative: 0.33
+    };
+    const minAvg = thresholds[riskProfile] ?? 0.25;
+
+    // Find the most recent date with data (today if available, otherwise latest)
+    const dateRows = await runQuery(
+      `SELECT MAX(game_date) as game_date FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\` WHERE game_date <= @today`,
+      { today }
+    );
+    const targetDate = dateRows?.[0]?.game_date?.value || dateRows?.[0]?.game_date || today;
+
+    // Deduplicate: one row per player per game (multiple rows exist per pitcher faced)
+    const query = `
+      WITH deduped AS (
+        SELECT
+          player_id,
+          ANY_VALUE(game_id) AS game_id,
+          game_date,
+          MAX(rolling_batting_avg_L30) AS rolling_batting_avg_L30,
+          ANY_VALUE(home_vs_away) AS home_vs_away
+        FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\`
+        WHERE game_date = @target_date
+        GROUP BY player_id, game_date
+      )
+      SELECT
+        p.player_id,
+        d.full_name AS player_name,
+        CASE WHEN p.home_vs_away = 1 THEN g.home_team_abbr ELSE g.away_team_abbr END AS team_id,
+        CASE WHEN p.home_vs_away = 1 THEN g.away_team_abbr ELSE g.home_team_abbr END AS opponent_team_id,
+        p.game_date,
+        NULL AS game_time,
+        NULL AS batting_order_position,
+        p.rolling_batting_avg_L30 AS hit_probability,
+        p.rolling_batting_avg_L30 AS confidence_score,
+        ROW_NUMBER() OVER (ORDER BY p.rolling_batting_avg_L30 DESC) AS rank_overall,
+        NULL AS prediction_timestamp
+      FROM deduped p
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` d ON p.player_id = d.player_id
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__games\` g ON p.game_id = g.game_id
+      WHERE p.rolling_batting_avg_L30 >= @min_avg
+      ORDER BY p.rolling_batting_avg_L30 DESC
+      LIMIT @limit
+    `;
+
+    const data = await runQuery(query, {
+      target_date: targetDate,
+      min_avg: minAvg,
+      limit: parseLimit(limit, 20, 100)
+    });
+
+    res.json({ success: true, date: targetDate, riskProfile, count: data.length, predictions: data });
+  } catch (err) {
+    console.error('Error fetching predictions:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/mlb/predictions/top', async (req, res) => {
+  try {
+    const { riskProfile = 'balanced' } = req.query;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+    const dateRows = await runQuery(
+      `SELECT MAX(game_date) as game_date FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\` WHERE game_date <= @today`,
+      { today }
+    );
+    const targetDate = dateRows?.[0]?.game_date?.value || dateRows?.[0]?.game_date || today;
+
+    const query = `
+      WITH deduped AS (
+        SELECT
+          player_id,
+          ANY_VALUE(game_id) AS game_id,
+          game_date,
+          MAX(rolling_batting_avg_L30) AS rolling_batting_avg_L30,
+          ANY_VALUE(home_vs_away) AS home_vs_away
+        FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\`
+        WHERE game_date = @target_date
+          AND rolling_batting_avg_L30 IS NOT NULL
+        GROUP BY player_id, game_date
+      )
+      SELECT
+        p.player_id,
+        d.full_name AS player_name,
+        CASE WHEN p.home_vs_away = 1 THEN g.home_team_abbr ELSE g.away_team_abbr END AS team_id,
+        CASE WHEN p.home_vs_away = 1 THEN g.away_team_abbr ELSE g.home_team_abbr END AS opponent_team_id,
+        p.game_date,
+        p.rolling_batting_avg_L30 AS hit_probability,
+        1 AS rank_overall
+      FROM deduped p
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` d ON p.player_id = d.player_id
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__games\` g ON p.game_id = g.game_id
+      ORDER BY p.rolling_batting_avg_L30 DESC
+      LIMIT 1
+    `;
+
+    const data = await runQuery(query, { target_date: targetDate });
+    res.json({ success: true, riskProfile, topPick: data?.[0] || null });
+  } catch (err) {
+    console.error('Error fetching top pick:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // --- FINAL 404 HANDLER ---
