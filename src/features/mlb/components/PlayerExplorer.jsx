@@ -3,9 +3,9 @@ import PlayerInfoCard from './PlayerInfoCard';
 import SeasonStatsTable from './SeasonStatsTable';
 import PitchHeatmap from './PitchHeatmap';
 import LoadingSpinner3D from '../../../components/LoadingSpinner3D';
-import { 
-  fetchMLBPlayersList, 
-  fetchMLBPlayerInfo, 
+import {
+  fetchMLBPlayersList,
+  fetchMLBPlayerInfo,
   fetchMLBPlayerBattingSeasons,
   fetchMLBPlayerPitchingSeasons,
   fetchMLBStatcastData,
@@ -33,6 +33,7 @@ export default function PlayerExplorer({ onTeamNavigate }) {
   const [battedBallStats, setBattedBallStats] = useState(null);
   const [selectedSeason, setSelectedSeason] = useState('2024');
   const [viewType, setViewType] = useState('batting'); // 'batting' or 'pitching'
+  const [activeTab, setActiveTab] = useState('batting'); // Controls which navigation tab is visible
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
@@ -91,6 +92,7 @@ export default function PlayerExplorer({ onTeamNavigate }) {
       // Determine viewType based on player type flags from API
       const defaultViewType = info.is_batter ? 'batting' : info.is_pitcher ? 'pitching' : 'batting';
       setViewType(defaultViewType);
+      setActiveTab(defaultViewType);
 
       // Load pitch data for most recent season
       const stats = info.is_batter ? battingStats : pitchingStats;
@@ -188,7 +190,7 @@ export default function PlayerExplorer({ onTeamNavigate }) {
         <h2 style={{ marginBottom: '24px', fontSize: '1.875rem', fontWeight: '700' }}>
           Explore Player Profile
         </h2>
-        
+
         <div style={{ position: 'relative', maxWidth: '500px' }}>
           <div style={{ position: 'relative' }}>
             <input
@@ -329,57 +331,69 @@ export default function PlayerExplorer({ onTeamNavigate }) {
             <PlayerInfoCard player={playerInfo} onTeamClick={handleTeamClick} />
           </div>
 
-          {/* View Type Toggle (for two-way players viewing pitch heatmap) */}
-          {isTwoWay && playerInfo.is_batter && (
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              marginBottom: '24px',
-              padding: '4px',
-              background: '#0a0a0a',
-              borderRadius: '12px',
-              width: 'fit-content',
-              border: '1px solid #333'
-            }}>
-              <button
-                onClick={() => handleViewTypeChange('batting')}
-                style={{
-                  padding: '12px 24px',
-                  background: viewType === 'batting' ? '#00f2ff' : 'transparent',
-                  color: viewType === 'batting' ? '#000' : '#888',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  transition: 'all 0.2s'
-                }}
-              >
-                Batting Pitch Map
-              </button>
-              <button
-                onClick={() => handleViewTypeChange('pitching')}
-                style={{
-                  padding: '12px 24px',
-                  background: viewType === 'pitching' ? '#00f2ff' : 'transparent',
-                  color: viewType === 'pitching' ? '#000' : '#888',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  transition: 'all 0.2s'
-                }}
-              >
-                Pitching Pitch Map
-              </button>
-            </div>
-          )}
+          {/* Main Navigation Tabs */}
+          <div style={{
+            display: 'flex',
+            gap: '8px',
+            marginBottom: '32px',
+            padding: '6px',
+            background: '#0a0a0a',
+            borderRadius: '12px',
+            border: '1px solid #333',
+            overflowX: 'auto',
+            whiteSpace: 'nowrap'
+          }}>
+            {[
+              { id: 'batting', label: 'Batting', icon: '⚾' },
+              { id: 'pitching', label: 'Pitching', icon: '🔥' },
+              { id: 'fielding', label: 'Fielding', icon: '🧤' },
+              { id: 'visuals', label: 'Visuals', icon: '🎯' },
+              { id: 'advanced', label: 'Advanced', icon: '📊' }
+            ].map(tab => {
+              const isDisabled =
+                (tab.id === 'batting' && !playerInfo.is_batter && !isTwoWay) ||
+                (tab.id === 'pitching' && !playerInfo.is_pitcher && !isTwoWay);
+
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    if (isDisabled) return;
+                    setActiveTab(tab.id);
+                    if (tab.id === 'batting' && viewType !== 'batting') {
+                      handleViewTypeChange('batting');
+                    } else if (tab.id === 'pitching' && viewType !== 'pitching') {
+                      handleViewTypeChange('pitching');
+                    }
+                  }}
+                  disabled={isDisabled}
+                  style={{
+                    padding: '12px 24px',
+                    background: activeTab === tab.id ? '#00f2ff' : 'transparent',
+                    color: activeTab === tab.id ? '#000' : (isDisabled ? '#444' : '#888'),
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: isDisabled ? 'not-allowed' : 'pointer',
+                    fontWeight: '600',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>{tab.icon}</span>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
           {/* Batting Stats Table */}
-          {playerInfo.is_batter && (
+          {activeTab === 'batting' && playerInfo.is_batter && (
             <div style={{ marginBottom: '40px' }}>
-              <h3 style={{ 
-                color: '#00f2ff', 
-                fontSize: '1.25rem', 
+              <h3 style={{
+                color: '#00f2ff',
+                fontSize: '1.25rem',
                 fontWeight: '600',
                 marginBottom: '16px',
                 display: 'flex',
@@ -388,19 +402,19 @@ export default function PlayerExplorer({ onTeamNavigate }) {
               }}>
                 <span>⚾</span> Career Batting Statistics
               </h3>
-              <SeasonStatsTable 
-                seasons={battingSeasons} 
-                playerType="batter" 
+              <SeasonStatsTable
+                seasons={battingSeasons}
+                playerType="batter"
               />
             </div>
           )}
 
           {/* Pitching Stats Table */}
-          {playerInfo.is_pitcher && (
+          {activeTab === 'pitching' && playerInfo.is_pitcher && (
             <div style={{ marginBottom: '40px' }}>
-              <h3 style={{ 
-                color: '#00f2ff', 
-                fontSize: '1.25rem', 
+              <h3 style={{
+                color: '#00f2ff',
+                fontSize: '1.25rem',
                 fontWeight: '600',
                 marginBottom: '16px',
                 display: 'flex',
@@ -409,64 +423,154 @@ export default function PlayerExplorer({ onTeamNavigate }) {
               }}>
                 <span>🔥</span> Career Pitching Statistics
               </h3>
-              <SeasonStatsTable 
-                seasons={pitchingSeasons} 
-                playerType="pitcher" 
+              <SeasonStatsTable
+                seasons={pitchingSeasons}
+                playerType="pitcher"
               />
             </div>
           )}
 
-          {/* Pitch Heatmap (only for batters) */}
-          {playerInfo.is_batter && (
-            <div>
-              <h3 style={{ 
-                color: '#00f2ff', 
-                fontSize: '1.25rem', 
-                fontWeight: '600',
-                marginBottom: '16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px'
-              }}>
-                <span>🎯</span> Pitch Location Heat Map
-              </h3>
-              
-              {/* Season Filter */}
-              {availableSeasons.length > 0 && (
-                <div style={{
-                  marginBottom: '24px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px'
-                }}>
-                  <label style={{ color: '#888', fontSize: '0.875rem', fontWeight: '600' }}>
-                    Filter by Season:
-                  </label>
-                  <select
-                    value={selectedSeason}
-                    onChange={(e) => handleSeasonChange(e.target.value)}
-                    style={{
-                      padding: '10px 16px',
-                      background: '#0a0a0a',
-                      border: '1px solid #333',
-                      borderRadius: '8px',
-                      color: '#fff',
-                      fontSize: '0.875rem',
-                      cursor: 'pointer',
-                      outline: 'none'
-                    }}
-                  >
-                    {seasonOptions.map((season) => (
-                      <option key={season} value={season}>
-                        {season === 'career' ? 'Career Avg (All Seasons)' : `${season} Season`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+          {/* Fielding Placeholder */}
+          {activeTab === 'fielding' && (
+            <div style={{
+              padding: '60px',
+              textAlign: 'center',
+              color: '#888',
+              background: '#0a0a0a',
+              borderRadius: '12px',
+              border: '1px solid #333',
+              marginBottom: '40px'
+            }}>
+              <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🧤</div>
+              <h3 style={{ color: '#fff', marginBottom: '8px' }}>Fielding Statistics</h3>
+              <p>Detailed fielding metrics coming soon.</p>
+            </div>
+          )}
 
-              <PitchHeatmap 
-                pitches={pitchData} 
+          {/* Advanced Analysis Placeholder */}
+          {activeTab === 'advanced' && (
+            <div style={{
+              padding: '60px',
+              textAlign: 'center',
+              color: '#888',
+              background: '#0a0a0a',
+              borderRadius: '12px',
+              border: '1px solid #333',
+              marginBottom: '40px'
+            }}>
+              <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📊</div>
+              <h3 style={{ color: '#fff', marginBottom: '8px' }}>Advanced Analysis</h3>
+              <p>Deep dives, trends, and advanced models coming soon.</p>
+            </div>
+          )}
+
+          {/* Pitch Heatmap (Visuals) */}
+          {activeTab === 'visuals' && (
+            <div style={{ marginBottom: '40px' }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '24px',
+                marginBottom: '24px',
+                alignItems: 'end'
+              }}>
+                <div>
+                  <h3 style={{
+                    color: '#00f2ff',
+                    fontSize: '1.25rem',
+                    fontWeight: '600',
+                    marginBottom: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    <span>🎯</span> Pitch Location Heat Map
+                  </h3>
+
+                  {/* View Type Toggle (for two-way players viewing pitch heatmap) */}
+                  {isTwoWay && (
+                    <div style={{
+                      display: 'flex',
+                      gap: '12px',
+                      padding: '4px',
+                      background: '#050505',
+                      borderRadius: '12px',
+                      width: 'fit-content',
+                      border: '1px solid #333'
+                    }}>
+                      <button
+                        onClick={() => handleViewTypeChange('batting')}
+                        style={{
+                          padding: '10px 20px',
+                          background: viewType === 'batting' ? '#333' : 'transparent',
+                          color: viewType === 'batting' ? '#fff' : '#888',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontWeight: '600',
+                          transition: 'all 0.2s',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        Batting View
+                      </button>
+                      <button
+                        onClick={() => handleViewTypeChange('pitching')}
+                        style={{
+                          padding: '10px 20px',
+                          background: viewType === 'pitching' ? '#333' : 'transparent',
+                          color: viewType === 'pitching' ? '#fff' : '#888',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontWeight: '600',
+                          transition: 'all 0.2s',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        Pitching View
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Season Filter */}
+                {availableSeasons.length > 0 && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px'
+                  }}>
+                    <label style={{ color: '#888', fontSize: '0.875rem', fontWeight: '600' }}>
+                      Filter by Season:
+                    </label>
+                    <select
+                      value={selectedSeason}
+                      onChange={(e) => handleSeasonChange(e.target.value)}
+                      style={{
+                        padding: '10px 16px',
+                        background: '#0a0a0a',
+                        border: '1px solid #333',
+                        borderRadius: '8px',
+                        color: '#fff',
+                        fontSize: '0.875rem',
+                        cursor: 'pointer',
+                        outline: 'none'
+                      }}
+                    >
+                      {seasonOptions.map((season) => (
+                        <option key={season} value={season}>
+                          {season === 'career' ? 'Career Avg (All Seasons)' : `${season} Season`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <PitchHeatmap
+                pitches={pitchData}
                 zoneOutcomes={pitchZoneOutcomes}
                 handedness={playerInfo.bat_side_code || playerInfo.pitch_hand_code}
                 viewType={viewType}
