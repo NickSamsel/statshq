@@ -51,9 +51,42 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/health',
       mlb: {
-        playerSearch: '/api/mlb/players/search?q=playername',
-        playerInfo: '/api/mlb/players/:playerId/info',
-        rosters: '/api/mlb/teams/:teamId/roster?season=2024',
+        teams: {
+          seasons: '/api/mlb/teams/seasons',
+          list: '/api/mlb/teams/list',
+          standings: '/api/mlb/teams/standings',
+          teamRoster: '/api/mlb/teams/:teamId/roster',
+          teamSeasonStats: '/api/mlb/teams/:teamId/season-stats',
+          teamGames: '/api/mlb/teams/:teamId/games',
+          teamVenues: '/api/mlb/teams/:teamId/venues',
+          teamStatcastMetrics: '/api/mlb/teams/:teamId/statcast-metrics',
+          teamStandingsHistory: '/api/mlb/teams/:teamId/standings-history',
+          general: '/api/mlb/teams'
+        },
+        players: {
+          search: '/api/mlb/players/search?q={query}',
+          info: '/api/mlb/players/:playerId/info',
+          seasonBattingStats: '/api/mlb/players/:playerId/season-batting-stats',
+          seasonPitchingStats: '/api/mlb/players/:playerId/season-pitching-stats',
+          seasonStats: '/api/mlb/players/season-stats?playerId={id}'
+        },
+        statcast: {
+          pitchLocations: '/api/mlb/statcast/pitch-locations?playerId={id}',
+          pitchZoneOutcomes: '/api/mlb/statcast/pitch-zone-outcomes?playerId={id}',
+          battedBallStats: '/api/mlb/statcast/batted-ball-stats?playerId={id}',
+          exitVelocity: '/api/mlb/statcast/exit-velocity'
+        },
+        leaderboards: {
+          batting: '/api/mlb/batting',
+          pitching: '/api/mlb/pitching'
+        },
+        games: {
+          recent: '/api/mlb/games/recent'
+        },
+        predictions: {
+          today: '/api/mlb/predictions/today',
+          top: '/api/mlb/predictions/top'
+        }
       }
     }
   });
