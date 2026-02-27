@@ -59,7 +59,7 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
     onMouseMove: (e) => setHoverTooltip((prev) => prev ? { ...prev, x: e.clientX, y: e.clientY } : { text, x: e.clientX, y: e.clientY }),
     onMouseLeave: () => setHoverTooltip(null)
   });
-  
+
   return (
     <div style={{
       background: '#0a0a0a',
@@ -76,9 +76,9 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
           Season by Season Statistics
         </h3>
       </div>
-      
-      <div style={{ 
-        overflowX: 'auto', 
+
+      <div style={{
+        overflowX: 'auto',
         overflowY: 'auto',
         maxHeight: '500px'
       }}>
@@ -87,7 +87,7 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
           borderCollapse: 'collapse',
           fontSize: '0.875rem'
         }}>
-          <thead style={{ 
+          <thead style={{
             position: 'sticky',
             top: 0,
             zIndex: 10
@@ -96,10 +96,10 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
               background: '#050505',
               borderBottom: '1px solid #333'
             }}>
-              <th style={{...headerStyle, position: 'sticky', left: 0, background: '#050505', zIndex: 11}}>Season</th>
-              <th style={{...headerStyle, position: 'sticky', left: '80px', background: '#050505', zIndex: 11}}>Team</th>
+              <th style={{ ...headerStyle, position: 'sticky', left: 0, background: '#050505', zIndex: 11 }}>Season</th>
+              <th style={{ ...headerStyle, position: 'sticky', left: '80px', background: '#050505', zIndex: 11 }}>Team</th>
               <th style={headerStyle}>G</th>
-              
+
               {isBatter ? (
                 <>
                   <th style={headerStyle}>PA</th>
@@ -148,23 +148,23 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
                 transition: 'background 0.2s',
                 cursor: 'default'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#0f0f0f'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#0f0f0f'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               >
-                <td style={{...cellStyle, position: 'sticky', left: 0, background: index % 2 === 0 ? '#0a0a0a' : '#0a0a0a', fontWeight: '600'}}
+                <td style={{ ...cellStyle, position: 'sticky', left: 0, background: index % 2 === 0 ? '#0a0a0a' : '#0a0a0a', fontWeight: '600' }}
                   onMouseEnter={(e) => e.currentTarget.style.background = '#0f0f0f'}
                   onMouseLeave={(e) => e.currentTarget.style.background = '#0a0a0a'}
                 >
                   {season.season}
                 </td>
-                <td style={{...cellStyle, position: 'sticky', left: '80px', background: index % 2 === 0 ? '#0a0a0a' : '#0a0a0a', fontWeight: '600', color: '#00f2ff'}}
+                <td style={{ ...cellStyle, position: 'sticky', left: '80px', background: index % 2 === 0 ? '#0a0a0a' : '#0a0a0a', fontWeight: '600', color: '#00f2ff' }}
                   onMouseEnter={(e) => e.currentTarget.style.background = '#0f0f0f'}
                   onMouseLeave={(e) => e.currentTarget.style.background = '#0a0a0a'}
                 >
-                  {season.team_name || season.team_abbrev || 'N/A'}
+                  {season.team_name || season.team_abbrev || season.team_id || 'N/A'}
                 </td>
-                <td style={cellStyle}>{season.games || 0}</td>
-                
+                <td style={cellStyle}>{season.games_played ?? season.games_pitched ?? season.games ?? 0}</td>
+
                 {isBatter ? (
                   <>
                     <td style={cellStyle}>{season.plate_appearances || 0}</td>
@@ -173,50 +173,50 @@ export default function SeasonStatsTable({ seasons, playerType = 'batter' }) {
                     <td style={rankCellStyle} title={pctTitle(season.hits_percentile)} {...tooltipProps(pctTitle(season.hits_percentile))}>{season.hits || 0}</td>
                     <td style={cellStyle}>{season.doubles || 0}</td>
                     <td style={cellStyle}>{season.triples || 0}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.home_runs_percentile)} {...tooltipProps(pctTitle(season.home_runs_percentile))}>{season.home_runs || 0}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.home_run_percentile ?? season.home_runs_percentile)} {...tooltipProps(pctTitle(season.home_run_percentile ?? season.home_runs_percentile))}>{season.home_runs_traditional ?? season.home_runs ?? 0}</td>
                     <td style={rankCellStyle} title={pctTitle(season.rbi_percentile)} {...tooltipProps(pctTitle(season.rbi_percentile))}>{season.rbi || 0}</td>
                     <td style={rankCellStyle} title={pctTitle(season.stolen_bases_percentile)} {...tooltipProps(pctTitle(season.stolen_bases_percentile))}>{season.stolen_bases || 0}</td>
                     <td style={cellStyle}>{season.caught_stealing || 0}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.walks_percentile)} {...tooltipProps(pctTitle(season.walks_percentile))}>{season.walks || 0}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.strikeouts_percentile)} {...tooltipProps(pctTitle(season.strikeouts_percentile))}>{season.strikeouts || 0}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.bb_percentage_percentile ?? season.walks_percentile)} {...tooltipProps(pctTitle(season.bb_percentage_percentile ?? season.walks_percentile))}>{season.walks || 0}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.k_percentage_percentile ?? season.strikeouts_percentile)} {...tooltipProps(pctTitle(season.k_percentage_percentile ?? season.strikeouts_percentile))}>{season.strikeouts || 0}</td>
                     <td style={cellStyle}>{season.hit_by_pitch || 0}</td>
                     <td style={cellStyle}>{season.sacrifice_flies || 0}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.avg_percentile)} {...tooltipProps(pctTitle(season.avg_percentile))}>{season.avg?.toFixed(3) || '.000'}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.obp_percentile)} {...tooltipProps(pctTitle(season.obp_percentile))}>{season.obp?.toFixed(3) || '.000'}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.slg_percentile)} {...tooltipProps(pctTitle(season.slg_percentile))}>{season.slg?.toFixed(3) || '.000'}</td>
-                    <td style={{...rankCellStyle, color: '#00f2ff', fontWeight: '600'}} title={pctTitle(season.ops_percentile)} {...tooltipProps(pctTitle(season.ops_percentile))}>
+                    <td style={rankCellStyle} title={pctTitle(season.batting_avg_percentile ?? season.avg_percentile)} {...tooltipProps(pctTitle(season.batting_avg_percentile ?? season.avg_percentile))}>{(season.batting_average ?? season.avg)?.toFixed(3) || '.000'}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.obp_percentile)} {...tooltipProps(pctTitle(season.obp_percentile))}>{(season.on_base_percentage ?? season.obp)?.toFixed(3) || '.000'}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.slg_percentile)} {...tooltipProps(pctTitle(season.slg_percentile))}>{(season.slugging_percentage ?? season.slg)?.toFixed(3) || '.000'}</td>
+                    <td style={{ ...rankCellStyle, color: '#00f2ff', fontWeight: '600' }} title={pctTitle(season.ops_percentile)} {...tooltipProps(pctTitle(season.ops_percentile))}>
                       {season.ops?.toFixed(3) || '.000'}
                     </td>
-                    <td style={{...rankCellStyle, color: '#FFD700', fontWeight: '600'}} title={pctTitle(season.war_percentile)} {...tooltipProps(pctTitle(season.war_percentile))}>
-                      {season.war?.toFixed(1) || '0.0'}
+                    <td style={{ ...rankCellStyle, color: '#FFD700', fontWeight: '600' }} title={pctTitle(season.war_percentile)} {...tooltipProps(pctTitle(season.war_percentile))}>
+                      {(season.simplified_offensive_war ?? season.war)?.toFixed(1) || '0.0'}
                     </td>
                   </>
                 ) : (
                   <>
-                    <td style={{...rankCellStyle, color: '#00f2ff', fontWeight: '600'}} title={pctTitle(season.era_percentile)} {...tooltipProps(pctTitle(season.era_percentile))}>
+                    <td style={{ ...rankCellStyle, color: '#00f2ff', fontWeight: '600' }} title={pctTitle(season.era_percentile)} {...tooltipProps(pctTitle(season.era_percentile))}>
                       {season.era?.toFixed(2) || '0.00'}
                     </td>
                     <td style={rankCellStyle} title={pctTitle(season.innings_pitched_percentile)} {...tooltipProps(pctTitle(season.innings_pitched_percentile))}>{season.innings_pitched?.toFixed(1) || '0.0'}</td>
-                    <td style={cellStyle}>{season.hits || 0}</td>
-                    <td style={cellStyle}>{season.runs || 0}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.walks_percentile)} {...tooltipProps(pctTitle(season.walks_percentile))}>{season.walks || 0}</td>
-                    <td style={rankCellStyle} title={pctTitle(season.strikeouts_percentile)} {...tooltipProps(pctTitle(season.strikeouts_percentile))}>{season.strikeouts || 0}</td>
+                    <td style={cellStyle}>{season.hits_allowed ?? season.hits ?? 0}</td>
+                    <td style={cellStyle}>{season.runs_allowed ?? season.runs ?? 0}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.bb_percentage_percentile ?? season.walks_percentile)} {...tooltipProps(pctTitle(season.bb_percentage_percentile ?? season.walks_percentile))}>{season.walks_allowed ?? season.walks ?? 0}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.k_percentage_percentile ?? season.strikeouts_percentile)} {...tooltipProps(pctTitle(season.k_percentage_percentile ?? season.strikeouts_percentile))}>{season.strikeouts || 0}</td>
                     <td style={rankCellStyle} title={pctTitle(season.whip_percentile)} {...tooltipProps(pctTitle(season.whip_percentile))}>{season.whip?.toFixed(2) || '0.00'}</td>
                     <td style={cellStyle}>
-                      {season.innings_pitched > 0 
-                        ? ((season.strikeouts / season.innings_pitched) * 9).toFixed(1) 
+                      {season.innings_pitched > 0
+                        ? ((season.strikeouts / season.innings_pitched) * 9).toFixed(1)
                         : '0.0'}
                     </td>
                     <td style={rankCellStyle} title={pctTitle(season.k_percentage_percentile)} {...tooltipProps(pctTitle(season.k_percentage_percentile))}>
-                      {season.k_percentage ? season.k_percentage.toFixed(1) + '%' : '0.0%'}
+                      {season.k_percentage ? (season.k_percentage * 100).toFixed(1) + '%' : '0.0%'}
                     </td>
                     <td style={rankCellStyle} title={pctTitle(season.strike_percentage_percentile)} {...tooltipProps(pctTitle(season.strike_percentage_percentile))}>
-                      {season.strike_percentage ? season.strike_percentage.toFixed(1) + '%' : '0.0%'}
+                      {(season.strike_pct ?? season.strike_percentage) ? ((season.strike_pct ?? season.strike_percentage) * 100).toFixed(1) + '%' : '0.0%'}
                     </td>
-                    <td style={rankCellStyle} title={pctTitle(season.avg_pitch_velocity_percentile)} {...tooltipProps(pctTitle(season.avg_pitch_velocity_percentile))}>{season.avg_pitch_velocity?.toFixed(1) || '0.0'}</td>
+                    <td style={rankCellStyle} title={pctTitle(season.velocity_percentile ?? season.avg_pitch_velocity_percentile)} {...tooltipProps(pctTitle(season.velocity_percentile ?? season.avg_pitch_velocity_percentile))}>{season.avg_pitch_velocity?.toFixed(1) || '0.0'}</td>
                     <td style={cellStyle}>{season.quality_starts || 0}</td>
-                    <td style={{...rankCellStyle, color: '#FFD700', fontWeight: '600'}} title={pctTitle(season.war_percentile)} {...tooltipProps(pctTitle(season.war_percentile))}>
-                      {season.war?.toFixed(1) || '0.0'}
+                    <td style={{ ...rankCellStyle, color: '#FFD700', fontWeight: '600' }} title={pctTitle(season.war_percentile)} {...tooltipProps(pctTitle(season.war_percentile))}>
+                      {(season.simplified_pitching_war ?? season.war)?.toFixed(1) || '0.0'}
                     </td>
                   </>
                 )}

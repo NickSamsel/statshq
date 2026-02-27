@@ -330,7 +330,14 @@ app.get('/api/mlb/players/:playerId/info', async (req, res) => {
 app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
   try {
     const { playerId } = req.params;
-    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` WHERE player_id = @player_id ORDER BY season DESC`;
+    const query = `
+      SELECT p.*, t.team_abbr, t.team_name 
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` p
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t 
+        ON p.team_id = t.team_id AND p.season = t.season
+      WHERE p.player_id = @player_id 
+      ORDER BY p.season DESC
+    `;
     const data = await runQuery(query, { player_id: String(playerId) });
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -339,7 +346,14 @@ app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
 app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => {
   try {
     const { playerId } = req.params;
-    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\` WHERE player_id = @player_id ORDER BY season DESC`;
+    const query = `
+      SELECT p.*, t.team_abbr, t.team_name 
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\` p
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t 
+        ON p.team_id = t.team_id AND p.season = t.season
+      WHERE p.player_id = @player_id 
+      ORDER BY p.season DESC
+    `;
     const data = await runQuery(query, { player_id: String(playerId) });
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
