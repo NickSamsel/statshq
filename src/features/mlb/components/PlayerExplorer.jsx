@@ -292,7 +292,7 @@ export default function PlayerExplorer({ onTeamNavigate }) {
                   <div style={{ fontWeight: '600' }}>{player.player_name}</div>
                   <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '2px' }}>
                     {player.team_name || 'Free Agent'}
-                    {player.latest_season && ` • Last played: ${player.latest_season}`}
+                    {player.latest_season && ` • ${player.latest_season}`}
                   </div>
                 </div>
               ))}

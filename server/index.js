@@ -296,7 +296,29 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
 app.get('/api/mlb/players/search', async (req, res) => {
   try {
     const { q = '', limit = 100 } = req.query;
-    const query = `SELECT DISTINCT p.player_id, p.full_name as player_name FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` p WHERE LOWER(p.full_name) LIKE @q LIMIT @l`;
+    const query = `
+      WITH latest_season AS (
+        SELECT 
+          player_id,
+          MAX(season) as latest_season
+        FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\`
+        GROUP BY player_id
+      )
+      SELECT 
+        p.player_id, 
+        p.full_name as player_name,
+        ts.team_name,
+        ts.team_abbr,
+        ls.latest_season
+      FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` p
+      LEFT JOIN latest_season ls ON p.player_id = ls.player_id
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` ps 
+        ON p.player_id = ps.player_id AND ps.season = ls.latest_season
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` ts 
+        ON ps.team_id = ts.team_id AND ps.season = ts.season
+      WHERE LOWER(p.full_name) LIKE @q
+      LIMIT @l
+    `;
     const data = await runQuery(query, { q: `%${q.toLowerCase()}%`, l: parseInt(limit) });
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
