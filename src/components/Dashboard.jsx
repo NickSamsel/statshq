@@ -18,7 +18,7 @@ function Dashboard() {
           style={{ cursor: 'pointer' }}
         >
           <h3>⚾ MLB Spotlight</h3>
-          <p>Analyze 3D pitch placements and iridescent Statcast metrics.</p>
+          <p>Analyze pitch placements and Statcast metrics.</p>
           <span className="badge">LIVE NOW</span>
         </div>
 

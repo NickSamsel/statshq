@@ -11,16 +11,13 @@ import {
   Bar,
   Legend
 } from 'recharts';
-import LoadingSpinner3D from '../../../components/LoadingSpinner3D';
 import InteractiveBallpark from '../visualization/BallparkMap';
 import {
   fetchMLBTeamsList,
   fetchMLBTeamSeasons,
   fetchMLBTeamStandings,
-  fetchMLBTeamStandingsHistory,
   fetchMLBTeamSeasonStats,
   fetchMLBTeamGames,
-  fetchMLBTeamStatcastMetrics,
   fetchMLBVenues,
   fetchMLBPlayersTeamRoster
 } from '../../../services/bigqueryService';
@@ -44,14 +41,12 @@ export default function TeamExplorer({ prefillTeam }) {
   const [selectedTeamId, setSelectedTeamId] = useState('');
 
   const [seasonStats, setSeasonStats] = useState(null);
-  const [statcastMetrics, setStatcastMetrics] = useState(null);
   const [games, setGames] = useState([]);
   const [venueData, setVenueData] = useState(null);
   const [roster, setRoster] = useState([]);
 
   const [standingsSnapshot, setStandingsSnapshot] = useState(null);
   const [divisionStandings, setDivisionStandings] = useState([]);
-  const [standingsHistory, setStandingsHistory] = useState([]);
 
   // Init Seasons
   useEffect(() => {
@@ -83,19 +78,13 @@ export default function TeamExplorer({ prefillTeam }) {
     (async () => {
       setLoading(true);
       try {
-        const [stats, sc, gameRows, venueRows, rosterRows] = await Promise.all([
+        const [stats, gameRows] = await Promise.all([
           fetchMLBTeamSeasonStats(selectedTeamId, { season: selectedSeason }),
-          fetchMLBTeamStatcastMetrics(selectedTeamId, { season: selectedSeason }),
           fetchMLBTeamGames(selectedTeamId, { season: selectedSeason, limit: 162 }),
-          fetchMLBVenues(selectedTeamId, { season: selectedSeason }),
-          fetchMLBPlayersTeamRoster(selectedTeamId, { season: selectedSeason })
         ]);
         if (cancelled) return;
         setSeasonStats(stats);
-        setStatcastMetrics(sc);
         setGames(gameRows || []);
-        setVenueData(venueRows?.[0] || null);
-        setRoster(rosterRows || []);
       } catch (e) { setError('Data fetch error'); }
       finally { setLoading(false); }
     })();
@@ -107,20 +96,42 @@ export default function TeamExplorer({ prefillTeam }) {
     if (!selectedSeason || !selectedTeamId) return;
     (async () => {
       try {
-        const [std, hist] = await Promise.all([
-          fetchMLBTeamStandings({ season: selectedSeason }),
-          fetchMLBTeamStandingsHistory(selectedTeamId, { season: selectedSeason })
-        ]);
+        const std = await fetchMLBTeamStandings({ season: selectedSeason });
         const rows = std?.rows || [];
         const team = rows.find(r => String(r.team_id) === String(selectedTeamId));
         setStandingsSnapshot(team || null);
-        setStandingsHistory(hist || []);
         if (team?.division_id) {
           setDivisionStandings(rows.filter(r => r.division_id === team.division_id).sort((a, b) => (a.division_rank || 99) - (b.division_rank || 99)));
         }
       } catch (e) { }
     })();
   }, [selectedSeason, selectedTeamId]);
+
+  // Roster - lazy load only when roster tab is active
+  useEffect(() => {
+    if (!selectedSeason || !selectedTeamId || activeTab !== 'roster') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchMLBPlayersTeamRoster(selectedTeamId, { season: selectedSeason });
+        if (!cancelled) setRoster(data || []);
+      } catch (e) { }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, selectedSeason, selectedTeamId]);
+
+  // Venue - lazy load only when ballpark tab is active
+  useEffect(() => {
+    if (!selectedSeason || !selectedTeamId || activeTab !== 'ballpark') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchMLBVenues(selectedTeamId, { season: selectedSeason });
+        if (!cancelled) setVenueData(data?.[0] || null);
+      } catch (e) { }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTab, selectedSeason, selectedTeamId]);
 
   const gamesChrono = useMemo(() => [...(games || [])].sort((a, b) => getDateString(a.game_date).localeCompare(getDateString(b.game_date))), [games]);
   const cumulativeRunDiff = useMemo(() => {
@@ -130,7 +141,7 @@ export default function TeamExplorer({ prefillTeam }) {
 
   return (
     <div style={{ minHeight: '100vh', background: '#050505', color: '#fff', padding: '40px' }}>
-      {loading && <LoadingSpinner3D />}
+      {loading && <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading...</div>}
 
       <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
@@ -316,7 +327,12 @@ export default function TeamExplorer({ prefillTeam }) {
 
         {activeTab === 'ballpark' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '24px' }}>
-            <Panel title="Ballpark Map"><InteractiveBallpark venue={venueData} /></Panel>
+            <Panel title="Ballpark Map">
+              {venueData
+                ? <InteractiveBallpark venue={venueData} />
+                : <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555' }}>Loading...</div>
+              }
+            </Panel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <Panel title="Stadium Info">
                 <MiniStat label="Stadium" value={venueData?.venue_name} />

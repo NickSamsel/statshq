@@ -22,7 +22,12 @@
       "Bash(echo \"Failed with code $?\")",
       "Bash(npm install)",
       "Bash(sudo chown:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/list?season=2025\")",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/109/roster?season=2025\")",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/seasons\")",
+      "Bash(curl -s \"http://localhost:8080/api/mlb/teams/109/roster?season=2024\")",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); null_names=[p for p in data if p[''player_name''] is None]; print\\(f''Total players: {len\\(data\\)}, Null names: {len\\(null_names\\)}''\\)\")"
     ],
     "deny": [],
     "ask": []

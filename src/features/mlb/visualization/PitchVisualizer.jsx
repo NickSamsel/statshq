@@ -1,290 +1,8 @@
-import React, { Suspense, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { 
-  OrbitControls, 
-  PerspectiveCamera, 
-  ContactShadows, 
-  Edges, 
-  Grid,
-  Html
-} from '@react-three/drei';
+import { useState, useMemo } from 'react';
 
-// Internal feature imports
-import { IridescentBatter } from './Batter';
-import { PitchMarkers } from './PitchMarkers';
-import styles from './PitchVisualizer.module.css';
-
-/**
- * Interactive Strike Zone with zone selection
- * Draws a sharp, glowing box with transparent sides and clickable zones
- */
-function StrikeZone({ 
-  zoneOutcomes = [], 
-  selectedZone = null, 
-  hoveredZone = null,
-  onZoneClick = null,
-  onZoneHover = null,
-  viewType = 'batting'
-}) {
-  const ZONE_WIDTH = 1.7;
-  const ZONE_HEIGHT = 2.0;
-  const ZONE_TOP = 3.5;
-  const ZONE_BOTTOM = 1.5;
-
-  const getZoneColor = (zone) => {
-    if (!zone) return '#00f2ff';
-    const successRate = Number(zone.success_rate || 0);
-    
-    if (viewType === 'batting') {
-      // For batters - higher success is better
-      if (successRate >= 0.6) return '#FFD700';
-      if (successRate >= 0.4) return '#00f2ff';
-      if (successRate >= 0.2) return '#00ff88';
-      return '#ff0055';
-    } else {
-      // For pitchers - lower success (for batters) is better
-      if (successRate <= 0.2) return '#FFD700';
-      if (successRate <= 0.4) return '#00f2ff';
-      if (successRate <= 0.6) return '#00ff88';
-      return '#ff0055';
-    }
-  };
-
-  const createZoneMesh = (zoneIndex, position, zoneData = null) => {
-    const cellWidth = ZONE_WIDTH / 3;
-    const cellHeight = ZONE_HEIGHT / 3;
-    const isHovered = hoveredZone?.zone === zoneIndex;
-    const isSelected = selectedZone?.zone === zoneIndex;
-    const color = zoneData ? getZoneColor(zoneData) : '#00f2ff';
-
-    return (
-      <mesh
-        key={`zone-${zoneIndex}`}
-        position={position}
-        onClick={() => onZoneClick && onZoneClick({ ...zoneData, zone: zoneIndex })}
-        onPointerOver={() => onZoneHover && onZoneHover({ ...zoneData, zone: zoneIndex })}
-        onPointerOut={() => onZoneHover && onZoneHover(null)}
-      >
-        <boxGeometry args={[cellWidth, cellHeight, 0.01]} />
-        <meshStandardMaterial 
-          color={color}
-          transparent 
-          opacity={isSelected ? 0.6 : (isHovered ? 0.4 : 0.1)}
-          emissive={color}
-          emissiveIntensity={isSelected ? 0.8 : (isHovered ? 0.4 : 0.1)}
-          toneMapped={false}
-        />
-        {isSelected && (
-          <Edges>
-            <meshBasicMaterial color="#FFD700" toneMapped={false} />
-          </Edges>
-        )}
-      </mesh>
-    );
-  };
-
-  const zones = [];
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      const zoneIndex = row * 3 + col + 1;
-      const x = (col - 1) * (ZONE_WIDTH / 3);
-      const y = ZONE_BOTTOM + (2 - row) * (ZONE_HEIGHT / 3) + (ZONE_HEIGHT / 6);
-      const zoneData = zoneOutcomes.find(z => Number(z.zone) === zoneIndex);
-      zones.push(createZoneMesh(zoneIndex, [x, y, 0], zoneData));
-    }
-  }
-
-  return (
-    <group position={[0, 2.5, 0]}>
-      {/* Main strike zone box */}
-      <mesh>
-        <boxGeometry args={[ZONE_WIDTH, ZONE_HEIGHT, 0.5]} />
-        <meshStandardMaterial 
-          color="#00f2ff" 
-          transparent 
-          opacity={0.03} 
-          metalness={1} 
-          roughness={0} 
-        />
-        <Edges threshold={15}>
-          <meshBasicMaterial color="#00f2ff" toneMapped={false} />
-        </Edges>
-      </mesh>
-      
-      {/* Interactive zone cells */}
-      {zones}
-    </group>
-  );
-}
-
-/**
- * Player Information Overlay with Handedness and Zone-Specific Stats
- */
-function PlayerInfoOverlay({ playerInfo, viewType, selectedZone, battedBallStats }) {
-  const getHandednessDisplay = () => {
-    if (viewType === 'pitching') {
-      const hand = playerInfo.pitch_hand_code || playerInfo.pitch_hand;
-      return hand ? `${hand}-handed pitcher` : 'Pitcher';
-    } else {
-      const hand = playerInfo.bat_side_code || playerInfo.bat_side;
-      return hand ? `${hand}-handed batter` : 'Batter';
-    }
-  };
-
-  const getZoneStats = () => {
-    if (!selectedZone) return null;
-    
-    return (
-      <div style={{ marginBottom: '12px' }}>
-        <div style={{ 
-          fontSize: '0.75rem', 
-          color: '#FFD700', 
-          fontWeight: '600', 
-          marginBottom: '8px' 
-        }}>
-          Zone {selectedZone.zone} Stats
-        </div>
-        <div style={{ display: 'grid', gap: '4px', fontSize: '0.7rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#888' }}>Pitches:</span>
-            <span style={{ color: '#fff' }}>{selectedZone.total_pitches || 0}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#888' }}>Success Rate:</span>
-            <span style={{ color: '#00f2ff' }}>
-              {((selectedZone.success_rate || 0) * 100).toFixed(1)}%
-            </span>
-          </div>
-          {selectedZone.avg_velocity && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888' }}>Avg Velo:</span>
-              <span style={{ color: '#fff' }}>{Number(selectedZone.avg_velocity).toFixed(1)} mph</span>
-            </div>
-          )}
-          {viewType === 'batting' && selectedZone.in_play && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888' }}>In Play:</span>
-              <span style={{ color: '#00ff88' }}>{selectedZone.in_play}</span>
-            </div>
-          )}
-          {viewType === 'pitching' && selectedZone.swinging_strikes && (
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#888' }}>Whiffs:</span>
-              <span style={{ color: '#FFD700' }}>{selectedZone.swinging_strikes}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <Html position={[0, 4, 0]} center>
-      <div style={{
-        background: 'rgba(0, 0, 0, 0.9)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid #00f2ff',
-        borderRadius: '12px',
-        padding: '16px',
-        minWidth: '280px',
-        color: '#fff',
-        fontSize: '0.875rem',
-        boxShadow: '0 8px 32px rgba(0, 242, 255, 0.3)',
-        pointerEvents: 'none'
-      }}>
-        {/* Player Type and Handedness */}
-        <div style={{ 
-          fontSize: '1rem', 
-          fontWeight: '700', 
-          color: '#00f2ff', 
-          marginBottom: '12px',
-          textAlign: 'center'
-        }}>
-          {getHandednessDisplay()}
-        </div>
-
-        {/* Zone-specific stats when zone is selected */}
-        {selectedZone && getZoneStats()}
-
-        {/* Zone-specific batted ball stats for batting view */}
-        {viewType === 'batting' && selectedZone && battedBallStats && battedBallStats.total_batted_balls > 0 && (
-          <div>
-            <div style={{ 
-              fontSize: '0.75rem', 
-              color: '#FFD700', 
-              fontWeight: '600', 
-              marginBottom: '8px' 
-            }}>
-              Zone {selectedZone.zone} Batted Balls
-            </div>
-            <div style={{ display: 'grid', gap: '4px', fontSize: '0.7rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#888' }}>In Play:</span>
-                <span style={{ color: '#fff' }}>{selectedZone.in_play || 0}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#888' }}>Success Rate:</span>
-                <span style={{ color: '#FFD700' }}>
-                  {((selectedZone.success_rate || 0) * 100).toFixed(1)}%
-                </span>
-              </div>
-              {selectedZone.avg_velocity && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#888' }}>Avg Velo:</span>
-                  <span style={{ color: '#fff' }}>{Number(selectedZone.avg_velocity).toFixed(1)} mph</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* General batted ball stats for batting view (when no zone selected) */}
-        {viewType === 'batting' && !selectedZone && battedBallStats && battedBallStats.total_batted_balls > 0 && (
-          <div>
-            <div style={{ 
-              fontSize: '0.75rem', 
-              color: '#00f2ff', 
-              fontWeight: '600', 
-              marginBottom: '8px' 
-            }}>
-              Overall Batted Ball Stats
-            </div>
-            <div style={{ display: 'grid', gap: '4px', fontSize: '0.7rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#888' }}>Total:</span>
-                <span style={{ color: '#fff' }}>{battedBallStats.total_batted_balls}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#888' }}>Avg Exit Velo:</span>
-                <span style={{ color: '#FFD700' }}>{battedBallStats.avg_exit_velo} mph</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#888' }}>Barrel Rate:</span>
-                <span style={{ color: '#FFD700' }}>{battedBallStats.barrel_rate}%</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Instructions */}
-        <div style={{ 
-          marginTop: '12px', 
-          paddingTop: '12px', 
-          borderTop: '1px solid #333',
-          fontSize: '0.7rem',
-          color: '#666',
-          textAlign: 'center'
-        }}>
-          {selectedZone ? 'Click zone again to clear' : 'Click any zone to filter'}
-        </div>
-      </div>
-    </Html>
-  );
-}
-
-export default function PitchVisualizer({ 
-  pitches, 
-  handedness, 
+export default function PitchVisualizer({
+  pitches,
+  handedness,
   viewType = 'batting',
   playerInfo = null,
   zoneOutcomes = [],
@@ -293,84 +11,527 @@ export default function PitchVisualizer({
 }) {
   const [selectedZone, setSelectedZone] = useState(null);
   const [hoveredZone, setHoveredZone] = useState(null);
+  const [hoveredPitch, setHoveredPitch] = useState(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  // Pitching only: toggle between heatmap and scatter
+  const [pitchingTab, setPitchingTab] = useState('zones');
 
   const handleZoneClick = (zone) => {
     const newZone = selectedZone?.zone === zone.zone ? null : zone;
     setSelectedZone(newZone);
-    if (onZoneSelect) {
-      onZoneSelect(newZone);
+    if (onZoneSelect) onZoneSelect(newZone);
+  };
+
+  // Statcast zone dimensions (feet)
+  const ZONE_WIDTH  = 1.7;
+  const ZONE_HEIGHT = 2.0;
+  const ZONE_TOP    = 3.5;
+  const ZONE_BOTTOM = 1.5;
+
+  const width     = 480;
+  const height    = 520;
+  const padLeft   = 56;
+  const padRight  = 36;
+  const padTop    = 50;
+  const padBottom = 86;
+
+  const scaleX = (width - padLeft - padRight) / (ZONE_WIDTH  * 2.4);
+  const scaleY = (height - padTop - padBottom) / (ZONE_HEIGHT * 2.5);
+
+  const toX = (px)  => width / 2 + (padLeft - padRight) / 2 + px  * scaleX;
+  const toY = (pz)  => height - padBottom - (pz - 0.7) * scaleY;
+
+  // Normalize strike_rate across this player's zones
+  const { zoneMin, zoneMax, zoneRange } = useMemo(() => {
+    if (!Array.isArray(zoneOutcomes) || !zoneOutcomes.length) {
+      return { zoneMin: 0, zoneMax: 1, zoneRange: 1 };
+    }
+    const vals = zoneOutcomes.map(z => Number(z.strike_rate)).filter(Number.isFinite);
+    if (!vals.length) return { zoneMin: 0, zoneMax: 1, zoneRange: 1 };
+    const min = Math.min(...vals), max = Math.max(...vals);
+    return { zoneMin: min, zoneMax: max, zoneRange: max - min || 1 };
+  }, [zoneOutcomes]);
+
+  // Baseball Savant–style scale: blue (low) → yellow → red (high)
+  const heatColor = (t) => {
+    const s = Math.max(0, Math.min(1, t));
+    const stops = [
+      [30, 64, 175], [37, 99, 235], [250, 204, 21], [249, 115, 22], [220, 38, 38],
+    ];
+    const i = Math.min(Math.floor(s * 4), 3);
+    const f = s * 4 - i;
+    const lerp = (a, b) => Math.round(a + (b - a) * f);
+    const [r, g, b] = [0, 1, 2].map(c => lerp(stops[i][c], stops[i + 1][c]));
+    return { fill: `rgb(${r},${g},${b})`, alpha: 0.52 + s * 0.36 };
+  };
+
+  const zoneColor = (zoneData) => {
+    const rate = Number(zoneData?.strike_rate);
+    if (!Number.isFinite(rate)) return { fill: '#1e293b', alpha: 0.45 };
+    return heatColor((rate - zoneMin) / zoneRange);
+  };
+
+  const toPct = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    return n >= 0 && n <= 1 ? n * 100 : n;
+  };
+  const fmtPct = (v, d = 0) => {
+    const p = toPct(v);
+    return p === null ? 'N/A' : `${p.toFixed(d)}%`;
+  };
+
+  // Outcome colors — semantic
+  const pitchColor = (pitch) => {
+    const d = pitch.pitch_result_description || '';
+    if (viewType === 'batting') {
+      if (d === 'In play, run(s)')                                   return '#22c55e'; // green  – run
+      if (d === 'In play, no out')                                    return '#06b6d4'; // cyan   – hit
+      if (d.includes('Foul'))                                         return '#a78bfa'; // violet – foul
+      if (d.includes('Ball') || d === 'Hit By Pitch')                 return '#64748b'; // slate  – ball
+      if (d.includes('Strike') || d === 'In play, out(s)')            return '#f43f5e'; // rose   – out
+      return '#64748b';
+    } else {
+      if (d.includes('Swinging Strike'))                              return '#22c55e'; // green  – whiff
+      if (d === 'Called Strike')                                       return '#06b6d4'; // cyan   – called K
+      if (d.includes('Foul'))                                          return '#a78bfa'; // violet – foul
+      if (d.includes('Ball'))                                          return '#f43f5e'; // rose   – ball
+      if (d === 'In play, out(s)')                                     return '#3b82f6'; // blue   – out
+      if (d.includes('In play'))                                       return '#f43f5e'; // rose   – hit allowed
+      return '#64748b';
     }
   };
+
+  const pitchSize = (pitch) => {
+    const v = Number(pitch.release_speed) || 90;
+    return 4.5 + Math.max(0, Math.min(1, (v - 70) / 35)) * 3;
+  };
+
+  const pitchZone = (pitch) => {
+    const col = Math.floor((pitch.plate_x + ZONE_WIDTH  / 2) / (ZONE_WIDTH  / 3));
+    const row = Math.floor((ZONE_TOP    - pitch.plate_z)     / (ZONE_HEIGHT / 3));
+    return row * 3 + col + 1;
+  };
+
+  const hasRawPitches  = Array.isArray(pitches)      && pitches.length > 0;
+  const hasZoneData    = Array.isArray(zoneOutcomes)  && zoneOutcomes.length > 0;
+
+  // What to render
+  const showZoneMap   = viewType === 'pitching' && pitchingTab === 'zones' && hasZoneData;
+  const showScatter   = viewType === 'batting'  || (viewType === 'pitching' && pitchingTab === 'plot');
+
+  // Empty state
+  if (!hasRawPitches && !hasZoneData) {
+    return (
+      <div style={{
+        background: '#020617', border: '1px solid #1e293b', borderRadius: '16px',
+        padding: '60px 40px', textAlign: 'center', minHeight: '400px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center'
+      }}>
+        <div>
+          <div style={{ fontSize: '2.5rem', marginBottom: '12px', opacity: 0.35 }}>⚾</div>
+          <div style={{ fontSize: '0.95rem', fontWeight: '500', color: '#64748b' }}>No pitch data available</div>
+          <div style={{ fontSize: '0.8rem', color: '#334155', marginTop: '8px' }}>Select a different season or player</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Geometry for zone cells (heatmap)
+  const zoneGeom = Array.from({ length: 3 }, (_, row) =>
+    Array.from({ length: 3 }, (_, col) => {
+      const zoneIndex = row * 3 + col + 1;
+      const cellLeft  = -ZONE_WIDTH / 2 + col * (ZONE_WIDTH  / 3);
+      const cellTop   =  ZONE_TOP  - row * (ZONE_HEIGHT / 3);
+      const zoneData  = zoneOutcomes.find(z => Number(z.zone) === zoneIndex);
+      const { fill, alpha } = zoneColor(zoneData);
+      return {
+        zoneIndex, zoneData, fill, alpha,
+        rx: toX(cellLeft),                   ry: toY(cellTop),
+        rw: (ZONE_WIDTH  / 3) * scaleX,     rh: (ZONE_HEIGHT / 3) * scaleY,
+        cx: toX(cellLeft + ZONE_WIDTH  / 6), cy: toY(cellTop  - ZONE_HEIGHT / 6),
+        strikePct: fmtPct(zoneData?.strike_rate),
+        count: zoneData?.total_pitches ?? null,
+      };
+    })
+  ).flat();
+
+  const leftLabel  = handedness === 'L' ? 'OUT' : 'IN';
+  const rightLabel = handedness === 'L' ? 'IN'  : 'OUT';
+
+  // Gradient bar for zone map legend
+  const barX = toX(-ZONE_WIDTH / 2), barW = ZONE_WIDTH * scaleX;
+  const barY = height - 34, barH = 6;
+
+  // Zone grid inner lines (for scatter background reference)
+  const scatterGrid = [
+    // horizontal
+    { x1: toX(-ZONE_WIDTH/2), y1: toY(ZONE_BOTTOM + ZONE_HEIGHT/3), x2: toX(ZONE_WIDTH/2), y2: toY(ZONE_BOTTOM + ZONE_HEIGHT/3) },
+    { x1: toX(-ZONE_WIDTH/2), y1: toY(ZONE_BOTTOM + ZONE_HEIGHT*2/3), x2: toX(ZONE_WIDTH/2), y2: toY(ZONE_BOTTOM + ZONE_HEIGHT*2/3) },
+    // vertical
+    { x1: toX(-ZONE_WIDTH/2 + ZONE_WIDTH/3), y1: toY(ZONE_TOP), x2: toX(-ZONE_WIDTH/2 + ZONE_WIDTH/3), y2: toY(ZONE_BOTTOM) },
+    { x1: toX(-ZONE_WIDTH/2 + ZONE_WIDTH*2/3), y1: toY(ZONE_TOP), x2: toX(-ZONE_WIDTH/2 + ZONE_WIDTH*2/3), y2: toY(ZONE_BOTTOM) },
+  ];
+
   return (
-    <div className={styles.hologramContainer}>
-      <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }}>
-        <Suspense fallback={null}>
-          <PerspectiveCamera makeDefault position={[0, 2, 7]} />
-          <OrbitControls 
-            makeDefault 
-            target={[0, 2, 0]} 
-            maxDistance={12} 
-            minDistance={4}
-            maxPolarAngle={Math.PI / 1.8} // Prevents camera from going under floor
-          />
-          
-          {/* Studio Lighting */}
-          <ambientLight intensity={0.4} />
-          <spotLight 
-            position={[10, 10, 10]} 
-            angle={0.15} 
-            penumbra={1} 
-            intensity={2} 
-            castShadow 
-          />
-          <pointLight position={[-10, -10, -10]} color="#00f2ff" intensity={1} />
+    <div style={{ background: '#020617', borderRadius: '16px', overflow: 'hidden' }}>
 
-          {/* The Data Actors */}
-          <IridescentBatter handedness={handedness} viewType={viewType} />
-          <PitchMarkers 
-            pitches={pitches} 
-            selectedZone={selectedZone}
-            viewType={viewType}
-          />
-          <StrikeZone 
-            zoneOutcomes={zoneOutcomes}
-            selectedZone={selectedZone}
-            hoveredZone={hoveredZone}
-            onZoneClick={handleZoneClick}
-            onZoneHover={setHoveredZone}
-            viewType={viewType}
-          />
-
-          {/* Player Info Overlay */}
-          {playerInfo && (
-            <PlayerInfoOverlay 
-              playerInfo={playerInfo}
-              viewType={viewType}
-              selectedZone={selectedZone}
-              battedBallStats={selectedZone ? null : battedBallStats}
-            />
+      {/* ── Header ── */}
+      <div style={{
+        padding: '9px 16px', display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', background: '#0a0f1e', borderBottom: '1px solid #0f172a'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Batter side pill */}
+          {handedness && (
+            <span style={{
+              fontSize: '0.68rem', fontWeight: '700', padding: '2px 8px',
+              background: handedness === 'L' ? 'rgba(251,191,36,0.08)' : 'rgba(96,165,250,0.08)',
+              color: handedness === 'L' ? '#fbbf24' : '#60a5fa',
+              border: `1px solid ${handedness === 'L' ? 'rgba(251,191,36,0.2)' : 'rgba(96,165,250,0.2)'}`,
+              borderRadius: '4px', letterSpacing: '0.05em'
+            }}>
+              {handedness === 'L' ? 'LHB' : 'RHB'}
+            </span>
           )}
 
-          {/* Modern Grounding Elements */}
-          <Grid 
-            infiniteGrid 
-            fadeDistance={20} 
-            fadeStrength={5} 
-            cellSize={0.5} 
-            sectionSize={2.5} 
-            sectionColor="#222" 
-            cellColor="#111" 
+          {/* Pitching mode toggle */}
+          {viewType === 'pitching' && hasZoneData && (
+            <div style={{
+              display: 'flex', background: '#060c18',
+              borderRadius: '5px', padding: '2px', border: '1px solid #1e293b'
+            }}>
+              {[['zones', 'Zone Map'], ['plot', 'Pitch Plot']].map(([tab, label]) => (
+                <button
+                  key={tab}
+                  onClick={() => setPitchingTab(tab)}
+                  style={{
+                    padding: '3px 10px', fontSize: '0.7rem', fontWeight: '600',
+                    background: pitchingTab === tab ? '#1e293b' : 'transparent',
+                    color: pitchingTab === tab ? '#e2e8f0' : '#475569',
+                    border: 'none', borderRadius: '3px', cursor: 'pointer',
+                    transition: 'all 0.12s'
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Zone selection info */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {selectedZone && showZoneMap ? (
+            <>
+              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Zone {selectedZone.zone}</span>
+              <span style={{ fontSize: '0.72rem', color: '#06b6d4', fontWeight: '700' }}>
+                {fmtPct(selectedZone.strike_rate)} strike rate
+              </span>
+              <button
+                onClick={() => handleZoneClick(selectedZone)}
+                style={{
+                  fontSize: '0.68rem', color: '#475569', background: 'none',
+                  border: '1px solid #1e293b', borderRadius: '4px',
+                  padding: '1px 6px', cursor: 'pointer'
+                }}
+              >✕</button>
+            </>
+          ) : (
+            <span style={{ fontSize: '0.68rem', color: '#1e293b' }}>
+              {showZoneMap ? 'Click zone to filter' : `${hasRawPitches ? pitches.length : 0} pitches`}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ── SVG ── */}
+      <div style={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
+        <svg width={width} height={height}>
+          <defs>
+            <radialGradient id="pv-bg" cx="50%" cy="40%" r="65%">
+              <stop offset="0%"   stopColor="#0f172a" />
+              <stop offset="100%" stopColor="#020617" />
+            </radialGradient>
+            <linearGradient id="pv-bar" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%"   stopColor="rgb(30,64,175)"  />
+              <stop offset="25%"  stopColor="rgb(37,99,235)"  />
+              <stop offset="50%"  stopColor="rgb(250,204,21)" />
+              <stop offset="75%"  stopColor="rgb(249,115,22)" />
+              <stop offset="100%" stopColor="rgb(220,38,38)"  />
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width={width} height={height} fill="url(#pv-bg)" />
+
+          {/* Height tick labels */}
+          {[ZONE_TOP, 2.5, ZONE_BOTTOM].map((z, i) => (
+            <g key={`yt${i}`}>
+              <line
+                x1={padLeft - 5} y1={toY(z)}
+                x2={toX(-ZONE_WIDTH / 2)} y2={toY(z)}
+                stroke="#1e293b" strokeWidth="1"
+              />
+              <text x={padLeft - 9} y={toY(z)} fill="#334155" fontSize="10"
+                textAnchor="end" dominantBaseline="middle">
+                {z}'
+              </text>
+            </g>
+          ))}
+
+          {/* Inside / Outside labels */}
+          <text x={toX(-ZONE_WIDTH/2)} y={padTop - 10} fill="#334155" fontSize="9"
+            fontWeight="600" textAnchor="middle" letterSpacing="0.06em">{leftLabel}</text>
+          <text x={toX( ZONE_WIDTH/2)} y={padTop - 10} fill="#334155" fontSize="9"
+            fontWeight="600" textAnchor="middle" letterSpacing="0.06em">{rightLabel}</text>
+
+          {/* ── Zone heatmap (pitching, Zone Map tab) ── */}
+          {showZoneMap && (
+            <>
+              {/* Pass 1: zone cell backgrounds */}
+              {zoneGeom.map(({ zoneIndex, zoneData, fill, alpha, rx, ry, rw, rh }) => {
+                const isHov = hoveredZone?.zone === zoneIndex;
+                const isSel = selectedZone?.zone === zoneIndex;
+                return (
+                  <rect
+                    key={`zb-${zoneIndex}`}
+                    x={rx} y={ry} width={rw} height={rh}
+                    fill={fill}
+                    fillOpacity={isSel ? Math.min(alpha + 0.15, 1) : isHov ? alpha + 0.1 : alpha}
+                    stroke={isSel ? 'rgba(255,255,255,0.65)' : isHov ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.07)'}
+                    strokeWidth={isSel ? 2 : 1}
+                    style={{ cursor: 'pointer', transition: 'fill-opacity 0.12s' }}
+                    onClick={() => handleZoneClick({ ...zoneData, zone: zoneIndex })}
+                    onMouseEnter={(e) => { setHoveredZone({ ...zoneData, zone: zoneIndex }); setTooltipPos({ x: e.clientX, y: e.clientY }); }}
+                    onMouseLeave={() => setHoveredZone(null)}
+                  />
+                );
+              })}
+
+              {/* Zone border */}
+              <rect
+                x={toX(-ZONE_WIDTH/2)} y={toY(ZONE_TOP)}
+                width={ZONE_WIDTH * scaleX} height={ZONE_HEIGHT * scaleY}
+                fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="1.5"
+              />
+
+              {/* Pass 2: zone stat labels (always on top) */}
+              {zoneGeom.map(({ zoneIndex, rx, ry, rw, rh, cx, cy, strikePct, count }) => {
+                const isSel = selectedZone?.zone === zoneIndex;
+                return (
+                  <g key={`zl-${zoneIndex}`} pointerEvents="none">
+                    {strikePct !== 'N/A' && (
+                      <text x={cx} y={cy - 7} fill="rgba(255,255,255,0.92)"
+                        fontSize="14" fontWeight="700" textAnchor="middle">{strikePct}</text>
+                    )}
+                    {count != null && (
+                      <text x={cx} y={cy + 10} fill="rgba(255,255,255,0.45)"
+                        fontSize="10" fontWeight="500" textAnchor="middle">{count} pitches</text>
+                    )}
+                    {isSel && (
+                      <rect x={rx} y={ry} width={rw} height={rh}
+                        fill="none" stroke="rgba(255,255,255,0.55)"
+                        strokeWidth="2" strokeDasharray="5 3" />
+                    )}
+                  </g>
+                );
+              })}
+
+              {/* Gradient scale bar */}
+              <rect x={barX} y={barY} width={barW} height={barH} fill="url(#pv-bar)" rx="3" />
+              <text x={barX}        y={barY + barH + 12} fill="#334155" fontSize="9" textAnchor="start">Low strike %</text>
+              <text x={barX + barW} y={barY + barH + 12} fill="#334155" fontSize="9" textAnchor="end">High strike %</text>
+            </>
+          )}
+
+          {/* ── Scatter plot (batting always; pitching Pitch Plot tab) ── */}
+          {showScatter && (
+            <>
+              {/* Faint zone grid for spatial reference */}
+              {scatterGrid.map((l, i) => (
+                <line key={`sg${i}`} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+                  stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+              ))}
+
+              {/* Strike zone outline */}
+              <rect
+                x={toX(-ZONE_WIDTH/2)} y={toY(ZONE_TOP)}
+                width={ZONE_WIDTH * scaleX} height={ZONE_HEIGHT * scaleY}
+                fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.22)" strokeWidth="1.5"
+              />
+
+              {/* Chase zone */}
+              <rect
+                x={toX(-ZONE_WIDTH/2 - 0.12)} y={toY(ZONE_TOP + 0.08)}
+                width={(ZONE_WIDTH + 0.24) * scaleX} height={(ZONE_HEIGHT + 0.16) * scaleY}
+                fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="4 5"
+              />
+
+              {/* Pitch dots */}
+              {hasRawPitches && pitches
+                .filter(p => selectedZone ? pitchZone(p) === selectedZone.zone : true)
+                .map((pitch, i) => {
+                  const px = toX(pitch.plate_x || 0);
+                  const py = toY(pitch.plate_z || 2.5);
+                  const color = pitchColor(pitch);
+                  const r = pitchSize(pitch);
+                  const isHov = hoveredPitch === pitch;
+                  return (
+                    <circle key={i} cx={px} cy={py} r={isHov ? r + 2 : r}
+                      fill={color} fillOpacity={isHov ? 1 : 0.82}
+                      stroke="rgba(0,0,0,0.5)" strokeWidth="1"
+                      style={{
+                        cursor: 'pointer',
+                        filter: isHov ? `drop-shadow(0 0 5px ${color})` : 'none',
+                        transition: 'r 0.08s'
+                      }}
+                      onMouseEnter={(e) => { setHoveredPitch(pitch); setTooltipPos({ x: e.clientX, y: e.clientY }); }}
+                      onMouseLeave={() => setHoveredPitch(null)}
+                    />
+                  );
+                })}
+            </>
+          )}
+
+          {/* Home plate (always) */}
+          <polygon
+            points={[
+              [toX(-0.708), toY(0.88)], [toX(0.708), toY(0.88)],
+              [toX(0.708),  toY(0.68)], [toX(0),     toY(0.48)],
+              [toX(-0.708), toY(0.68)],
+            ].map(([x, y]) => `${x},${y}`).join(' ')}
+            fill="rgba(255,255,255,0.8)" stroke="rgba(255,255,255,0.3)" strokeWidth="1"
           />
-          
-          <ContactShadows 
-            position={[0, 0, 0]} 
-            opacity={0.3} 
-            scale={10} 
-            blur={2.5} 
-            far={4} 
-          />
-        </Suspense>
-      </Canvas>
+        </svg>
+
+        {/* ── Pitch dot tooltip ── */}
+        {hoveredPitch && (
+          <div style={{
+            position: 'fixed', left: tooltipPos.x + 16, top: tooltipPos.y - 96,
+            background: 'rgba(2,6,23,0.97)',
+            border: `1px solid ${pitchColor(hoveredPitch)}40`,
+            borderRadius: '10px', padding: '11px 14px',
+            color: '#fff', fontSize: '0.8rem',
+            pointerEvents: 'none', zIndex: 1000,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.6)', minWidth: '172px'
+          }}>
+            <div style={{
+              color: pitchColor(hoveredPitch), fontWeight: '700',
+              marginBottom: '8px', fontSize: '0.85rem',
+              borderBottom: '1px solid #0f172a', paddingBottom: '6px'
+            }}>
+              {hoveredPitch.pitch_result_description || 'Unknown'}
+            </div>
+            <div style={{ display: 'grid', gap: '3px' }}>
+              <TRow label="Pitch"    value={hoveredPitch.pitch_type || 'N/A'} />
+              <TRow label="Velocity" value={hoveredPitch.release_speed ? `${hoveredPitch.release_speed} mph` : 'N/A'} />
+              <TRow label="Spin"     value={hoveredPitch.release_spin_rate ? `${hoveredPitch.release_spin_rate} rpm` : 'N/A'} />
+              <TRow label="Count"    value={`${hoveredPitch.balls ?? 0}–${hoveredPitch.strikes ?? 0}`} />
+            </div>
+          </div>
+        )}
+
+        {/* ── Zone tooltip (heatmap hover) ── */}
+        {hoveredZone && showZoneMap && (
+          <div style={{
+            position: 'fixed', left: tooltipPos.x + 16, top: tooltipPos.y - 130,
+            background: 'rgba(2,6,23,0.97)', border: '1px solid #1e293b',
+            borderRadius: '10px', padding: '12px 15px',
+            color: '#fff', fontSize: '0.8rem',
+            pointerEvents: 'none', zIndex: 1000,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.6)', minWidth: '188px'
+          }}>
+            <div style={{
+              color: '#06b6d4', fontWeight: '700', marginBottom: '9px',
+              fontSize: '0.85rem', borderBottom: '1px solid #0f172a', paddingBottom: '6px',
+              display: 'flex', justifyContent: 'space-between'
+            }}>
+              <span>Zone {hoveredZone.zone}</span>
+              <span style={{ color: '#94a3b8', fontWeight: '500' }}>{hoveredZone.total_pitches} pitches</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 14px' }}>
+              <TRow label="Strike %"        value={fmtPct(hoveredZone.strike_rate, 1)} />
+              <TRow label="Called K %"      value={fmtPct(hoveredZone.called_strike_rate, 1)} />
+              <TRow label="Whiff %"         value={fmtPct(hoveredZone.swinging_strike_rate, 1)} />
+              <TRow label="Ball %"          value={fmtPct(hoveredZone.ball_rate, 1)} />
+            </div>
+            {(hoveredZone.avg_velocity || hoveredZone.primary_pitch_description) && (
+              <div style={{ borderTop: '1px solid #0f172a', marginTop: '8px', paddingTop: '7px', display: 'grid', gap: '3px' }}>
+                {hoveredZone.primary_pitch_description && (
+                  <TRow label="Primary pitch" value={`${hoveredZone.primary_pitch_description} (${hoveredZone.primary_pitch_type})`} />
+                )}
+                {hoveredZone.avg_velocity && (
+                  <TRow label="Avg velocity" value={`${Number(hoveredZone.avg_velocity).toFixed(1)} mph`} />
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Legend ── */}
+      <div style={{
+        padding: '12px 16px 14px', borderTop: '1px solid #0a0f1e',
+        background: 'rgba(10,15,30,0.6)'
+      }}>
+        {showScatter && (
+          <>
+            <div style={{ fontSize: '0.62rem', color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '7px', fontWeight: '700' }}>
+              Pitch Outcomes
+            </div>
+            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+              {viewType === 'batting' ? (
+                <>
+                  <Dot color="#22c55e" label="Run(s)"       />
+                  <Dot color="#06b6d4" label="Hit"          />
+                  <Dot color="#a78bfa" label="Foul"         />
+                  <Dot color="#64748b" label="Ball"         />
+                  <Dot color="#f43f5e" label="Strike / Out" />
+                </>
+              ) : (
+                <>
+                  <Dot color="#22c55e" label="Swinging K" />
+                  <Dot color="#06b6d4" label="Called K"   />
+                  <Dot color="#a78bfa" label="Foul"       />
+                  <Dot color="#3b82f6" label="Out"        />
+                  <Dot color="#f43f5e" label="Ball / Hit" />
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '7px', color: '#1e293b', fontSize: '0.67rem' }}>
+              <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#334155' }} />
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#334155' }} />
+              <span>Dot size = pitch velocity</span>
+            </div>
+          </>
+        )}
+        {showZoneMap && (
+          <div style={{ fontSize: '0.72rem', color: '#334155' }}>
+            Hover a zone for full breakdown · Click to filter to that zone
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Dot({ color, label }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '5px',
+      padding: '3px 8px', background: '#0a0f1e',
+      borderRadius: '20px', border: '1px solid #1e293b'
+    }}>
+      <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: color, flexShrink: 0 }} />
+      <span style={{ color: '#475569', fontSize: '0.7rem', whiteSpace: 'nowrap' }}>{label}</span>
+    </div>
+  );
+}
+
+function TRow({ label, value }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+      <span style={{ color: '#475569' }}>{label}</span>
+      <span style={{ color: '#e2e8f0', fontWeight: '600' }}>{String(value)}</span>
     </div>
   );
 }

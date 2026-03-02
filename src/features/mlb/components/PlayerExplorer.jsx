@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import PlayerInfoCard from './PlayerInfoCard';
 import SeasonStatsTable from './SeasonStatsTable';
-import PitchHeatmap from './PitchHeatmap';
 import PitchVisualizer from '../visualization/PitchVisualizer';
-import LoadingSpinner3D from '../../../components/LoadingSpinner3D';
 import {
   fetchMLBPlayersList,
   fetchMLBPlayerInfo,
@@ -35,7 +33,6 @@ export default function PlayerExplorer({ onTeamNavigate }) {
   const [selectedSeason, setSelectedSeason] = useState('2024');
   const [viewType, setViewType] = useState('batting'); // 'batting' or 'pitching'
   const [activeTab, setActiveTab] = useState('batting'); // Controls which navigation tab is visible
-  const [visualMode, setVisualMode] = useState('2d'); // '2d' or '3d'
   const [selectedZone, setSelectedZone] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -153,12 +150,6 @@ export default function PlayerExplorer({ onTeamNavigate }) {
     }
   };
 
-  // Handle visual mode change (2D vs 3D)
-  const handleVisualModeChange = (mode) => {
-    setVisualMode(mode);
-    setSelectedZone(null); // Clear zone selection when switching visual mode
-  };
-
   // Get unique seasons from stats
   const stats = viewType === 'batting' ? battingSeasons : pitchingSeasons;
   const availableSeasons = stats.map(s => s.season).filter((v, i, a) => a.indexOf(v) === i);
@@ -202,7 +193,7 @@ export default function PlayerExplorer({ onTeamNavigate }) {
         `}
       </style>
 
-      {loading && <LoadingSpinner3D />}
+      {loading && <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>Loading...</div>}
 
       {/* Player Search */}
       <div style={{ maxWidth: '1400px', margin: '0 auto', marginBottom: '40px' }}>
@@ -504,53 +495,8 @@ export default function PlayerExplorer({ onTeamNavigate }) {
                     alignItems: 'center',
                     gap: '12px'
                   }}>
-                    <span>{visualMode === '3d' ? '�' : '�🎯'}</span> {visualMode === '3d' ? '3D Pitch Visualizer' : 'Pitch Location Heat Map'}
+                    <span>🎯</span> Pitch Location Map
                   </h3>
-
-                  {/* Visual Mode Toggle */}
-                  <div style={{
-                    display: 'flex',
-                    gap: '12px',
-                    padding: '4px',
-                    background: '#050505',
-                    borderRadius: '12px',
-                    width: 'fit-content',
-                    border: '1px solid #333',
-                    marginBottom: '12px'
-                  }}>
-                    <button
-                      onClick={() => handleVisualModeChange('2d')}
-                      style={{
-                        padding: '8px 16px',
-                        background: visualMode === '2d' ? '#333' : 'transparent',
-                        color: visualMode === '2d' ? '#fff' : '#888',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontWeight: '600',
-                        transition: 'all 0.2s',
-                        fontSize: '0.875rem'
-                      }}
-                    >
-                      2D View
-                    </button>
-                    <button
-                      onClick={() => handleVisualModeChange('3d')}
-                      style={{
-                        padding: '8px 16px',
-                        background: visualMode === '3d' ? '#333' : 'transparent',
-                        color: visualMode === '3d' ? '#fff' : '#888',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontWeight: '600',
-                        transition: 'all 0.2s',
-                        fontSize: '0.875rem'
-                      }}
-                    >
-                      3D View
-                    </button>
-                  </div>
 
                   {/* View Type Toggle (for two-way players viewing pitch heatmap) */}
                   {isTwoWay && (
@@ -634,33 +580,23 @@ export default function PlayerExplorer({ onTeamNavigate }) {
               </div>
 
               {/* Visual Content */}
-              {visualMode === '2d' ? (
-                <PitchHeatmap
+              <div style={{
+                background: '#0a0a0a',
+                border: '1px solid #333',
+                borderRadius: '12px',
+                padding: '20px',
+                minHeight: '600px'
+              }}>
+                <PitchVisualizer
                   pitches={pitchData}
-                  zoneOutcomes={pitchZoneOutcomes}
-                  handedness={playerInfo.bat_side_code || playerInfo.pitch_hand_code}
+                  handedness={viewType === 'batting' ? (playerInfo.bat_side_code || 'R') : (playerInfo.pitch_hand_code || 'R')}
                   viewType={viewType}
-                  battedBallStats={selectedZone ? null : battedBallStats}
+                  playerInfo={playerInfo}
+                  zoneOutcomes={pitchZoneOutcomes}
+                  battedBallStats={battedBallStats}
+                  onZoneSelect={setSelectedZone}
                 />
-              ) : (
-                <div style={{
-                  background: '#0a0a0a',
-                  border: '1px solid #333',
-                  borderRadius: '12px',
-                  padding: '20px',
-                  minHeight: '600px'
-                }}>
-                  <PitchVisualizer
-                    pitches={pitchData}
-                    handedness={viewType === 'batting' ? (playerInfo.bat_side_code || 'R') : (playerInfo.pitch_hand_code || 'R')}
-                    viewType={viewType}
-                    playerInfo={playerInfo}
-                    zoneOutcomes={pitchZoneOutcomes}
-                    battedBallStats={battedBallStats}
-                    onZoneSelect={handleZoneSelect}
-                  />
-                </div>
-              )}
+              </div>
             </div>
           )}
         </div>

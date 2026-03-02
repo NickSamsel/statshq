@@ -17,7 +17,25 @@ const bigquery = new BigQuery({
 });
 const DATASET = 'mlb_marts';
 
-const columnCache = new Map();
+const queryCache = new Map();
+const TTL = {
+  STATIC: 24 * 60 * 60 * 1000,   // 24h  — venues, seasons
+  LONG:   60 * 60 * 1000,         // 1h   — teams list
+  MED:    15 * 60 * 1000,         // 15m  — stats, roster, player info
+  SHORT:  5  * 60 * 1000,         // 5m   — standings, predictions
+  LIVE:   2  * 60 * 1000,         // 2m   — recent games
+};
+
+function getCached(key) {
+  const entry = queryCache.get(key);
+  if (entry && Date.now() < entry.expiry) return entry.data;
+  queryCache.delete(key);
+  return null;
+}
+
+function setCached(key, data, ttl = TTL.MED) {
+  queryCache.set(key, { data, expiry: Date.now() + ttl });
+}
 
 // --- HELPER FUNCTIONS ---
 
@@ -100,23 +118,30 @@ app.get('/.well-known/*', (req, res) => res.status(204).end());
 
 app.get('/api/mlb/teams/seasons', async (req, res) => {
   try {
+    const cacheKey = 'teams:seasons';
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `SELECT DISTINCT season FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` ORDER BY season DESC`;
     const data = await runQuery(query);
-    res.json(data.map(r => r.season));
+    const result = data.map(r => r.season);
+    setCached(cacheKey, result, TTL.STATIC);
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/mlb/teams/list', async (req, res) => {
   try {
     const seasonParam = req.query.season;
-    let season = seasonParam ? parseIntParam(seasonParam, null) : null;
-    if (!season) {
-      const seasonQuery = `SELECT MAX(season) as season FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\``;
-      const seasonRows = await runQuery(seasonQuery);
-      season = seasonRows?.[0]?.season;
-    }
-    const query = `SELECT DISTINCT team_id, team_name, team_abbr, league_name, division_name, season FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` WHERE season = @season ORDER BY team_name`;
-    const data = await runQuery(query, { season });
+    const seasonHint = seasonParam ? parseIntParam(seasonParam, null) : null;
+    const cacheKey = `teams:list:${seasonHint ?? 'latest'}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+    // If no season given, use a subquery to find the latest rather than a separate roundtrip
+    const query = seasonHint
+      ? `SELECT DISTINCT team_id, team_name, team_abbr, league_name, division_name, season FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` WHERE season = @season ORDER BY team_name`
+      : `SELECT DISTINCT team_id, team_name, team_abbr, league_name, division_name, season FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` WHERE season = (SELECT MAX(season) FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\`) ORDER BY team_name`;
+    const data = await runQuery(query, seasonHint ? { season: seasonHint } : undefined);
+    setCached(cacheKey, data, TTL.LONG);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -125,14 +150,17 @@ app.get('/api/mlb/teams/standings', async (req, res) => {
   try {
     const season = parseIntParam(req.query.season, 2025);
     const standingsDate = req.query.date ? String(req.query.date) : null;
-    let targetDate = standingsDate;
-    if (!targetDate) {
-      const dateRows = await runQuery(`SELECT MAX(standings_date) as d FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season`, { season });
-      targetDate = dateRows?.[0]?.d;
-    }
-    const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season AND standings_date = @standings_date ORDER BY league_name, division_name, division_rank, win_pct DESC`;
-    const data = await runQuery(query, { season, standings_date: targetDate });
-    res.json({ season, standings_date: targetDate, rows: data });
+    const cacheKey = `teams:standings:${season}:${standingsDate ?? 'latest'}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+    // Single query — subquery for max date avoids a separate roundtrip
+    const query = standingsDate
+      ? `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season AND standings_date = @standings_date ORDER BY league_name, division_name, division_rank, win_pct DESC`
+      : `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season AND standings_date = (SELECT MAX(standings_date) FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season) ORDER BY league_name, division_name, division_rank, win_pct DESC`;
+    const data = await runQuery(query, standingsDate ? { season, standings_date: standingsDate } : { season });
+    const result = { season, standings_date: standingsDate ?? data?.[0]?.standings_date ?? null, rows: data };
+    setCached(cacheKey, result, TTL.SHORT);
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -141,14 +169,18 @@ app.get('/api/mlb/teams/:teamId/roster', async (req, res) => {
   try {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season, 2025);
+    const cacheKey = `team:${teamId}:roster:${season}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
       WITH batters AS (SELECT DISTINCT player_id FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` WHERE team_id = @team_id AND season = @season),
       pitchers AS (SELECT DISTINCT player_id FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\` WHERE team_id = @team_id AND season = @season),
       roster_flags AS (SELECT player_id, TRUE AS is_batter, FALSE AS is_pitcher FROM batters UNION ALL SELECT player_id, FALSE, TRUE FROM pitchers),
       roster AS (SELECT player_id, MAX(CAST(is_batter AS INT64)) > 0 AS is_batter, MAX(CAST(is_pitcher AS INT64)) > 0 AS is_pitcher FROM roster_flags GROUP BY player_id)
       SELECT r.player_id, d.full_name AS player_name, d.primary_number, d.primary_position_abbr, d.bat_side_code, d.pitch_hand_code, r.is_batter, r.is_pitcher, @team_id AS team_id, @season AS season
-      FROM roster r LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` d ON r.player_id = d.player_id ORDER BY r.is_pitcher DESC, d.primary_position_abbr, d.full_name`;
+      FROM roster r INNER JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` d ON r.player_id = d.player_id ORDER BY r.is_pitcher DESC, d.primary_position_abbr, d.full_name`;
     const data = await runQuery(query, { team_id: String(teamId), season });
+    setCached(cacheKey, data || [], TTL.MED);
     res.json(data || []);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -157,6 +189,9 @@ app.get('/api/mlb/teams/:teamId/season-stats', async (req, res) => {
   try {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season, 2025);
+    const cacheKey = `team:${teamId}:season-stats:${season}`;
+    const cached = getCached(cacheKey);
+    if (cached !== null) return res.json(cached);
     const query = `
       WITH ranked AS (
         SELECT
@@ -170,7 +205,9 @@ app.get('/api/mlb/teams/:teamId/season-stats', async (req, res) => {
       SELECT * FROM ranked WHERE team_id = @team_id LIMIT 1
     `;
     const data = await runQuery(query, { team_id: teamId, season });
-    res.json(data?.[0] || null);
+    const result = data?.[0] || null;
+    setCached(cacheKey, result, TTL.MED);
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -179,8 +216,12 @@ app.get('/api/mlb/teams/:teamId/games', async (req, res) => {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season, 2025);
     const limit = parseLimit(req.query.limit, 50, 300);
+    const cacheKey = `team:${teamId}:games:${season}:${limit}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_game_stats\` WHERE team_id = @team_id AND season = @season ORDER BY game_date DESC LIMIT @limit`;
     const data = await runQuery(query, { team_id: teamId, season, limit });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -189,6 +230,9 @@ app.get('/api/mlb/teams/:teamId/venues', async (req, res) => {
   try {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season || 2025, 2025);
+    const cacheKey = `team:${teamId}:venues:${season}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
       SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__venues\`
       WHERE primary_home_team_id = @home_team_id
@@ -196,6 +240,7 @@ app.get('/api/mlb/teams/:teamId/venues', async (req, res) => {
       LIMIT 1
     `;
     const data = await runQuery(query, { home_team_id: String(teamId), season });
+    setCached(cacheKey, data, TTL.STATIC);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -204,6 +249,9 @@ app.get('/api/mlb/teams/:teamId/statcast-metrics', async (req, res) => {
   try {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season, 2025);
+    const cacheKey = `team:${teamId}:statcast:${season}`;
+    const cached = getCached(cacheKey);
+    if (cached !== null) return res.json(cached);
     const query = `
       SELECT *
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_statcast_metrics\`
@@ -211,7 +259,9 @@ app.get('/api/mlb/teams/:teamId/statcast-metrics', async (req, res) => {
       LIMIT 1
     `;
     const data = await runQuery(query, { team_id: String(teamId), season });
-    res.json(data?.[0] || null);
+    const result = data?.[0] || null;
+    setCached(cacheKey, result, TTL.MED);
+    res.json(result);
   } catch (err) {
     console.error('Error fetching team statcast metrics:', err);
     res.status(500).json({ error: err.message });
@@ -222,27 +272,19 @@ app.get('/api/mlb/teams/:teamId/standings-history', async (req, res) => {
   try {
     const { teamId } = req.params;
     const season = parseIntParam(req.query.season, 2025);
-
-    // Get historical standings data for the team throughout the season
+    const cacheKey = `team:${teamId}:standings-history:${season}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
       SELECT
-        team_id,
-        team_name,
-        season,
-        standings_date,
-        wins,
-        losses,
-        win_pct,
-        games_back,
-        division_rank,
-        run_differential
+        team_id, team_name, season, standings_date,
+        wins, losses, win_pct, games_back, division_rank, run_differential
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\`
-      WHERE team_id = @team_id
-        AND season = @season
+      WHERE team_id = @team_id AND season = @season
       ORDER BY standings_date ASC
     `;
-
     const data = await runQuery(query, { team_id: String(teamId), season });
+    setCached(cacheKey, data || [], TTL.SHORT);
     res.json(data || []);
   } catch (err) {
     console.error('Error fetching team standings history:', err);
@@ -254,10 +296,16 @@ app.get('/api/mlb/teams/:teamId/standings-history', async (req, res) => {
 app.get('/api/mlb/teams', async (req, res) => {
   try {
     const season = parseIntParam(req.query.season, 2025);
-    const dateRows = await runQuery(`SELECT MAX(standings_date) as d FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season`, { season });
-    const latestDate = dateRows?.[0]?.d;
-    const data = await runQuery(`SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season AND standings_date = @d ORDER BY win_pct DESC`, { season, d: latestDate });
-    res.json({ season, standings_date: latestDate, rows: data });
+    const cacheKey = `teams:all:${season}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
+    const data = await runQuery(
+      `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season AND standings_date = (SELECT MAX(standings_date) FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__standings\` WHERE season = @season) ORDER BY win_pct DESC`,
+      { season }
+    );
+    const result = { season, standings_date: data?.[0]?.standings_date ?? null, rows: data };
+    setCached(cacheKey, result, TTL.SHORT);
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -268,8 +316,9 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
     const { playerId, season = 2025, viewType = 'batting' } = req.query;
     const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
     const career = isCareerSeasonParam(season);
-    // Alias plate_x_bin/plate_z_bin → plate_x/plate_z for frontend compatibility
-    // Also alias avg_velocity/avg_spin_rate to release_speed/release_spin_rate
+    const cacheKey = `statcast:pitch-locations:${playerId}:${playerType}:${career ? 'career' : season}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
       SELECT
         player_id, player_type, season,
@@ -289,6 +338,7 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
       LIMIT 500
     `;
     const data = await runQuery(query, { player_id: String(playerId), player_type: playerType, season: parseIntParam(season, 2025) });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -296,30 +346,34 @@ app.get('/api/mlb/statcast/pitch-locations', async (req, res) => {
 app.get('/api/mlb/players/search', async (req, res) => {
   try {
     const { q = '', limit = 100 } = req.query;
+    const cacheKey = `players:search:${q.toLowerCase()}:${limit}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
       WITH latest_season AS (
-        SELECT 
+        SELECT
           player_id,
           MAX(season) as latest_season
         FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\`
         GROUP BY player_id
       )
-      SELECT 
-        p.player_id, 
+      SELECT
+        p.player_id,
         p.full_name as player_name,
         ts.team_name,
         ts.team_abbr,
         ls.latest_season
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` p
       LEFT JOIN latest_season ls ON p.player_id = ls.player_id
-      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` ps 
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` ps
         ON p.player_id = ps.player_id AND ps.season = ls.latest_season
-      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` ts 
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` ts
         ON ps.team_id = ts.team_id AND ps.season = ts.season
       WHERE LOWER(p.full_name) LIKE @q
       LIMIT @l
     `;
     const data = await runQuery(query, { q: `%${q.toLowerCase()}%`, l: parseInt(limit) });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -329,6 +383,9 @@ app.get('/api/mlb/players/:playerId/info', async (req, res) => {
   try {
     const { playerId } = req.params;
     const pid = String(playerId);
+    const cacheKey = `player:${pid}:info`;
+    const cached = getCached(cacheKey);
+    if (cached !== null) return res.json(cached);
 
     const [playerRows, batterRows, pitcherRows] = await Promise.all([
       runQuery(`SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.dim_mlb__players\` WHERE player_id = @player_id LIMIT 1`, { player_id: pid }),
@@ -337,14 +394,12 @@ app.get('/api/mlb/players/:playerId/info', async (req, res) => {
     ]);
 
     const player = playerRows?.[0];
-    if (!player) return res.json(null);
+    if (!player) { setCached(cacheKey, null, TTL.MED); return res.json(null); }
 
-    const isBatter = batterRows.length > 0;
-    const isPitcher = pitcherRows.length > 0;
-    player.is_batter = isBatter;
-    player.is_pitcher = isPitcher;
-    player.is_two_way_player = isBatter && isPitcher;
-
+    player.is_batter = batterRows.length > 0;
+    player.is_pitcher = pitcherRows.length > 0;
+    player.is_two_way_player = player.is_batter && player.is_pitcher;
+    setCached(cacheKey, player, TTL.MED);
     res.json(player);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -352,15 +407,19 @@ app.get('/api/mlb/players/:playerId/info', async (req, res) => {
 app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
   try {
     const { playerId } = req.params;
+    const cacheKey = `player:${playerId}:batting`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
-      SELECT p.*, t.team_abbr, t.team_name 
+      SELECT p.*, t.team_abbr, t.team_name
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` p
-      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t 
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t
         ON p.team_id = t.team_id AND p.season = t.season
-      WHERE p.player_id = @player_id 
+      WHERE p.player_id = @player_id
       ORDER BY p.season DESC
     `;
     const data = await runQuery(query, { player_id: String(playerId) });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -368,15 +427,19 @@ app.get('/api/mlb/players/:playerId/season-batting-stats', async (req, res) => {
 app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => {
   try {
     const { playerId } = req.params;
+    const cacheKey = `player:${playerId}:pitching`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
-      SELECT p.*, t.team_abbr, t.team_name 
+      SELECT p.*, t.team_abbr, t.team_name
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\` p
-      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t 
+      LEFT JOIN \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_season_stats\` t
         ON p.team_id = t.team_id AND p.season = t.season
-      WHERE p.player_id = @player_id 
+      WHERE p.player_id = @player_id
       ORDER BY p.season DESC
     `;
     const data = await runQuery(query, { player_id: String(playerId) });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -384,9 +447,15 @@ app.get('/api/mlb/players/:playerId/season-pitching-stats', async (req, res) => 
 app.get('/api/mlb/players/season-stats', async (req, res) => {
   try {
     const { playerId, season } = req.query;
+    const s = parseIntParam(season, 2025);
+    const cacheKey = `player:${playerId}:season-stats:${s}`;
+    const cached = getCached(cacheKey);
+    if (cached !== null) return res.json(cached);
     const query = `SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\` WHERE player_id = @player_id AND season = @season LIMIT 1`;
-    const data = await runQuery(query, { player_id: String(playerId), season: parseIntParam(season, 2025) });
-    res.json(data?.[0] || null);
+    const data = await runQuery(query, { player_id: String(playerId), season: s });
+    const result = data?.[0] || null;
+    setCached(cacheKey, result, TTL.MED);
+    res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -394,6 +463,10 @@ app.get('/api/mlb/statcast/pitch-zone-outcomes', async (req, res) => {
   try {
     const { playerId, season = 2025, viewType = 'batting' } = req.query;
     const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
+    const s = parseIntParam(season, 2025);
+    const cacheKey = `statcast:zone-outcomes:${playerId}:${playerType}:${s}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
       SELECT *
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__pitch_zone_outcomes\`
@@ -402,7 +475,8 @@ app.get('/api/mlb/statcast/pitch-zone-outcomes', async (req, res) => {
         AND season = @season
       ORDER BY zone
     `;
-    const data = await runQuery(query, { player_id: String(playerId), player_type: playerType, season: parseIntParam(season, 2025) });
+    const data = await runQuery(query, { player_id: String(playerId), player_type: playerType, season: s });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) {
     console.error('Error fetching pitch zone outcomes:', err);
@@ -414,7 +488,10 @@ app.get('/api/mlb/statcast/batted-ball-stats', async (req, res) => {
   try {
     const { playerId, season = 2025, viewType = 'batting' } = req.query;
     const playerType = viewType === 'batting' ? 'batter' : 'pitcher';
-
+    const s = parseIntParam(season, 2025);
+    const cacheKey = `statcast:batted-ball:${playerId}:${playerType}:${s}`;
+    const cached = getCached(cacheKey);
+    if (cached !== null) return res.json(cached);
     const query = `
       SELECT *
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batted_ball_season_stats\`
@@ -423,13 +500,10 @@ app.get('/api/mlb/statcast/batted-ball-stats', async (req, res) => {
         AND player_type = @player_type
       LIMIT 1
     `;
-
-    const data = await runQuery(query, {
-      player_id: String(playerId),
-      season: parseIntParam(season, 2025),
-      player_type: playerType
-    });
-    res.json(data?.[0] || null);
+    const data = await runQuery(query, { player_id: String(playerId), season: s, player_type: playerType });
+    const result = data?.[0] || null;
+    setCached(cacheKey, result, TTL.MED);
+    res.json(result);
   } catch (err) {
     console.error('Error fetching batted ball stats:', err);
     res.status(500).json({ error: err.message });
@@ -440,26 +514,19 @@ app.get('/api/mlb/statcast/batted-ball-stats', async (req, res) => {
 app.get('/api/mlb/batting', async (req, res) => {
   try {
     const { season = 2025, limit = 20 } = req.query;
+    const s = parseIntParam(season, 2025);
+    const l = parseLimit(limit, 20);
+    const cacheKey = `batting:leaderboard:${s}:${l}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
-      SELECT
-        player_id,
-        team_id,
-        avg,
-        obp,
-        slg,
-        ops,
-        home_runs,
-        rbi,
-        stolen_bases
+      SELECT player_id, team_id, avg, obp, slg, ops, home_runs, rbi, stolen_bases
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_season_stats\`
       WHERE season = @season
       ORDER BY ops DESC
       LIMIT @limit`;
-
-    const data = await runQuery(query, {
-      season: parseIntParam(season, 2025),
-      limit: parseLimit(limit, 20)
-    });
+    const data = await runQuery(query, { season: s, limit: l });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -468,23 +535,19 @@ app.get('/api/mlb/batting', async (req, res) => {
 app.get('/api/mlb/pitching', async (req, res) => {
   try {
     const { season = 2025, limit = 20 } = req.query;
+    const s = parseIntParam(season, 2025);
+    const l = parseLimit(limit, 20);
+    const cacheKey = `pitching:leaderboard:${s}:${l}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
-      SELECT
-        player_id,
-        team_id,
-        era,
-        strikeouts,
-        wins,
-        whip
+      SELECT player_id, team_id, era, strikeouts, wins, whip
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_pitching_season_stats\`
       WHERE season = @season
       ORDER BY strikeouts DESC
       LIMIT @limit`;
-
-    const data = await runQuery(query, {
-      season: parseIntParam(season, 2025),
-      limit: parseLimit(limit, 20)
-    });
+    const data = await runQuery(query, { season: s, limit: l });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -493,22 +556,19 @@ app.get('/api/mlb/pitching', async (req, res) => {
 app.get('/api/mlb/statcast/exit-velocity', async (req, res) => {
   try {
     const { season = 2025, limit = 20 } = req.query;
+    const s = parseIntParam(season, 2025);
+    const l = parseLimit(limit, 20);
+    const cacheKey = `statcast:exit-velocity:${s}:${l}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
-      SELECT 
-        player_id, 
-        player_type, 
-        avg_exit_velo, 
-        max_exit_velo, 
-        hard_hit_rate
+      SELECT player_id, player_type, avg_exit_velo, max_exit_velo, hard_hit_rate
       FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__player_batted_ball_season_stats\`
       WHERE season = @season
       ORDER BY avg_exit_velo DESC
       LIMIT @limit`;
-
-    const data = await runQuery(query, {
-      season: parseIntParam(season, 2025),
-      limit: parseLimit(limit, 20)
-    });
+    const data = await runQuery(query, { season: s, limit: l });
+    setCached(cacheKey, data, TTL.MED);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -516,11 +576,15 @@ app.get('/api/mlb/statcast/exit-velocity', async (req, res) => {
 // Recent Games Feed
 app.get('/api/mlb/games/recent', async (req, res) => {
   try {
+    const cacheKey = 'games:recent';
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     const query = `
-      SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_game_stats\` 
-      ORDER BY game_date DESC 
+      SELECT * FROM \`${process.env.GCP_PROJECT_ID}.${DATASET}.fct_mlb__team_game_stats\`
+      ORDER BY game_date DESC
       LIMIT 20`;
     const data = await runQuery(query);
+    setCached(cacheKey, data, TTL.LIVE);
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -532,36 +596,31 @@ app.get('/api/mlb/predictions/today', async (req, res) => {
   try {
     const { riskProfile = 'balanced', limit = 20 } = req.query;
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const l = parseLimit(limit, 20, 100);
+    const cacheKey = `predictions:today:${today}:${riskProfile}:${l}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
 
-    // Batting average thresholds per risk profile
-    const thresholds = {
-      aggressive: 0.20,
-      balanced: 0.25,
-      conservative: 0.28,
-      very_conservative: 0.30,
-      ultra_conservative: 0.33
-    };
+    const thresholds = { aggressive: 0.20, balanced: 0.25, conservative: 0.28, very_conservative: 0.30, ultra_conservative: 0.33 };
     const minAvg = thresholds[riskProfile] ?? 0.25;
 
-    // Find the most recent date with data (today if available, otherwise latest)
-    const dateRows = await runQuery(
-      `SELECT MAX(game_date) as game_date FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\` WHERE game_date <= @today`,
-      { today }
-    );
-    const targetDate = dateRows?.[0]?.game_date?.value || dateRows?.[0]?.game_date || today;
-
-    // Deduplicate: one row per player per game (multiple rows exist per pitcher faced)
+    // Single query — subquery finds the most recent date without a separate roundtrip
     const query = `
-      WITH deduped AS (
-        SELECT
-          player_id,
-          ANY_VALUE(game_id) AS game_id,
-          game_date,
-          MAX(rolling_batting_avg_L30) AS rolling_batting_avg_L30,
-          ANY_VALUE(home_vs_away) AS home_vs_away
+      WITH latest_date AS (
+        SELECT MAX(game_date) AS game_date
         FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\`
-        WHERE game_date = @target_date
-        GROUP BY player_id, game_date
+        WHERE game_date <= @today
+      ),
+      deduped AS (
+        SELECT
+          p.player_id,
+          ANY_VALUE(p.game_id) AS game_id,
+          p.game_date,
+          MAX(p.rolling_batting_avg_L30) AS rolling_batting_avg_L30,
+          ANY_VALUE(p.home_vs_away) AS home_vs_away
+        FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\` p
+        JOIN latest_date ld ON p.game_date = ld.game_date
+        GROUP BY p.player_id, p.game_date
       )
       SELECT
         p.player_id,
@@ -583,13 +642,11 @@ app.get('/api/mlb/predictions/today', async (req, res) => {
       LIMIT @limit
     `;
 
-    const data = await runQuery(query, {
-      target_date: targetDate,
-      min_avg: minAvg,
-      limit: parseLimit(limit, 20, 100)
-    });
-
-    res.json({ success: true, date: targetDate, riskProfile, count: data.length, predictions: data });
+    const data = await runQuery(query, { today, min_avg: minAvg, limit: l });
+    const targetDate = data?.[0]?.game_date?.value || data?.[0]?.game_date || today;
+    const result = { success: true, date: targetDate, riskProfile, count: data.length, predictions: data };
+    setCached(cacheKey, result, TTL.SHORT);
+    res.json(result);
   } catch (err) {
     console.error('Error fetching predictions:', err);
     res.status(500).json({ success: false, error: err.message });
@@ -600,25 +657,28 @@ app.get('/api/mlb/predictions/top', async (req, res) => {
   try {
     const { riskProfile = 'balanced' } = req.query;
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const cacheKey = `predictions:top:${today}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
 
-    const dateRows = await runQuery(
-      `SELECT MAX(game_date) as game_date FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\` WHERE game_date <= @today`,
-      { today }
-    );
-    const targetDate = dateRows?.[0]?.game_date?.value || dateRows?.[0]?.game_date || today;
-
+    // Single query — subquery finds most recent date without a separate roundtrip
     const query = `
-      WITH deduped AS (
-        SELECT
-          player_id,
-          ANY_VALUE(game_id) AS game_id,
-          game_date,
-          MAX(rolling_batting_avg_L30) AS rolling_batting_avg_L30,
-          ANY_VALUE(home_vs_away) AS home_vs_away
+      WITH latest_date AS (
+        SELECT MAX(game_date) AS game_date
         FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\`
-        WHERE game_date = @target_date
-          AND rolling_batting_avg_L30 IS NOT NULL
-        GROUP BY player_id, game_date
+        WHERE game_date <= @today
+      ),
+      deduped AS (
+        SELECT
+          p.player_id,
+          ANY_VALUE(p.game_id) AS game_id,
+          p.game_date,
+          MAX(p.rolling_batting_avg_L30) AS rolling_batting_avg_L30,
+          ANY_VALUE(p.home_vs_away) AS home_vs_away
+        FROM \`${process.env.GCP_PROJECT_ID}.${PREDICTIONS_DATASET}.ml_mlb__daily_predictions\` p
+        JOIN latest_date ld ON p.game_date = ld.game_date
+        WHERE p.rolling_batting_avg_L30 IS NOT NULL
+        GROUP BY p.player_id, p.game_date
       )
       SELECT
         p.player_id,
@@ -635,8 +695,10 @@ app.get('/api/mlb/predictions/top', async (req, res) => {
       LIMIT 1
     `;
 
-    const data = await runQuery(query, { target_date: targetDate });
-    res.json({ success: true, riskProfile, topPick: data?.[0] || null });
+    const data = await runQuery(query, { today });
+    const result = { success: true, riskProfile, topPick: data?.[0] || null };
+    setCached(cacheKey, result, TTL.SHORT);
+    res.json(result);
   } catch (err) {
     console.error('Error fetching top pick:', err);
     res.status(500).json({ success: false, error: err.message });
